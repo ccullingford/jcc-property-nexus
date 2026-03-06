@@ -1,0 +1,232 @@
+Build Chunk 4 of the Property Management Operations Platform.
+
+Chunks 1 through 3 are already complete. Do not rebuild the foundation or inbox workflow. Extend the existing application.
+
+This chunk is ONLY for the **Task System**.
+
+## Required stack
+Keep the existing stack exactly as-is:
+- Frontend: React
+- Backend: Node.js
+- Database: Postgres
+
+Do not replace or re-architect the stack.
+
+## Goal of Chunk 4
+Turn communication into trackable work by adding app-native tasks that can be linked to email threads.
+
+This chunk should introduce:
+- task creation
+- task assignment
+- task status and priority
+- due dates
+- task dashboard
+- thread-to-task linking
+
+Do NOT build contacts, issues, RingEX, or AI in this chunk.
+
+## What this chunk must deliver
+1. app-native tasks stored in Postgres
+2. create task from thread workflow
+3. assign task workflow
+4. task status / priority / due date support
+5. task dashboard UI
+6. thread-to-task linking in both directions
+7. task-related activity logging where useful
+
+## Important constraints
+- Do NOT rebuild earlier chunks
+- Do NOT use static frontend state as the primary task store
+- Do NOT use Microsoft To Do or Outlook Tasks
+- Tasks must be application-native and stored in Postgres
+- Do NOT build contacts, issues, property linking, telephony, or AI yet
+
+## Architecture requirements
+
+### Backend
+Add services such as:
+- `taskService`
+- `taskAssignmentService`
+- `taskQueryService`
+
+Responsibilities:
+
+#### taskService
+- create tasks
+- update tasks
+- delete or soft-delete tasks if supported
+- link tasks to threads
+
+#### taskAssignmentService
+- assign task to user
+- reassign task
+- track assignee changes if needed
+
+#### taskQueryService
+- list my tasks
+- list team tasks
+- list overdue tasks
+- retrieve tasks related to a thread
+
+### API endpoints
+Create endpoints such as:
+
+- `POST /api/tasks`
+- `GET /api/tasks`
+- `GET /api/tasks/:id`
+- `PATCH /api/tasks/:id`
+- `DELETE /api/tasks/:id`
+- `GET /api/threads/:id/tasks`
+
+Support query params or filtering for:
+- assigned to me
+- team tasks
+- overdue
+- status
+
+## Database requirements
+
+Create migration for `tasks`.
+
+### tasks
+Fields:
+- `id`
+- `issue_id` nullable
+- `thread_id` nullable
+- `assigned_user_id` nullable
+- `created_by_user_id`
+- `title`
+- `description`
+- `status`
+- `priority`
+- `due_date` nullable
+- `created_at`
+- `updated_at`
+
+Allowed statuses for this chunk:
+- `Open`
+- `In Progress`
+- `Completed`
+- `Cancelled`
+
+Allowed priorities for this chunk:
+- `Low`
+- `Normal`
+- `High`
+- `Urgent`
+
+Add proper foreign keys and indexes.
+
+If activity logging already exists, use it for key task actions such as:
+- task created
+- task assigned
+- task status changed
+
+## Workflow requirements
+
+### Create task from thread
+From a thread, user should be able to:
+- click Create Task
+- prefill task title from thread subject if sensible
+- optionally add description
+- assign user
+- set due date
+- set priority
+
+The task must store the linked `thread_id`.
+
+### Task management
+Users should be able to:
+- update task title/description
+- assign or reassign task
+- change status
+- change priority
+- set due date
+
+### Thread integration
+From thread view:
+- show related tasks
+- allow creating a task
+
+From task view/list:
+- show linked thread if present
+- allow navigation back to thread
+
+## Frontend requirements
+
+### Thread view updates
+Add:
+- Create Task button
+- related tasks section
+
+### Task dashboard
+Create a dedicated Tasks page with tabs or filters for:
+- My Tasks
+- Team Tasks
+- Overdue
+
+Each task row/card should show:
+- title
+- status
+- priority
+- due date
+- assignee
+- linked thread indicator if applicable
+
+### Task detail/edit experience
+Support either:
+- inline editing
+- drawer/modal
+- dedicated detail page
+
+Use whichever is cleanest and consistent with the current UI.
+
+### UX requirements
+The task experience should feel operational and practical:
+- easy to create from thread
+- easy to see ownership
+- easy to spot overdue work
+- easy to navigate between inbox and tasks
+
+## Authorization and user handling
+Use the authenticated user and existing user list.
+
+At minimum:
+- task creator is stored
+- tasks can be assigned to internal users
+- task visibility can stay internal/system-wide for now
+
+## Code quality requirements
+- keep business logic in backend services
+- keep React components modular
+- use typed models where possible
+- use migrations for all schema changes
+- preserve future support for linking tasks to issues in Chunk 6
+
+## Explicitly do not build yet
+Do not build any of the following in this chunk:
+- contacts
+- issues/cases
+- properties/units
+- RingEX integration
+- AI features
+
+## Definition of done
+Chunk 4 is complete when:
+1. users can create app-native tasks
+2. tasks can be linked to threads
+3. tasks can be assigned and updated
+4. users can view task lists in a dedicated dashboard
+5. thread view shows related tasks
+6. all task data persists in Postgres
+7. the app is cleanly ready for Chunk 5
+
+## Deliverables
+Produce:
+- Postgres migration for tasks
+- task services and APIs
+- thread/task linking UI
+- task dashboard UI
+- brief explanation of task model and filtering decisions
+
+Again: this chunk is only the app-native task system. Build it as a real operational workflow layer, not a mock task board.
