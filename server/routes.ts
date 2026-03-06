@@ -17,6 +17,9 @@ import {
   createTask as createTaskService,
   updateTask as updateTaskService,
 } from "./services/taskService";
+import { searchContacts, getContactWithDetails } from "./services/contactSearchService";
+import { createContact, updateContact as updateContactService, addContactPhone, addContactEmail, linkThreadContact, unlinkThreadContact, getThreadContacts } from "./services/contactService";
+import { getContactTimeline } from "./services/contactTimelineService";
 import expressSession from "express-session";
 import { syncMailbox } from "./services/syncService";
 import { isGraphConfigured } from "./services/graphService";
@@ -430,10 +433,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ─── Contacts ─────────────────────────────────────────────────────────────
-  app.get(api.contacts.list.path, async (_req, res) => res.json(await storage.getContacts()));
+  app.get(api.contacts.list.path, async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : undefined;
+      res.json(await searchContacts(q));
+    } catch (err) {
+      res.status(500).json({ message: "Internal error" });
+    }
+  });
 
   app.get(api.contacts.get.path, async (req, res) => {
-    const contact = await storage.getContact(Number(req.params.id));
+    const contact = await getContactWithDetails(Number(req.params.id));
     if (!contact) return res.status(404).json({ message: "Contact not found" });
     res.json(contact);
   });
@@ -441,17 +451,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post(api.contacts.create.path, async (req, res) => {
     try {
       const input = api.contacts.create.input.parse(req.body);
-      res.status(201).json(await storage.createContact(input));
+      res.status(201).json(await createContact(input));
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(500).json({ message: "Internal error" });
     }
   });
 
-  app.put(api.contacts.update.path, async (req, res) => {
+  app.patch(api.contacts.update.path, async (req, res) => {
     try {
       const input = api.contacts.update.input.parse(req.body);
-      res.json(await storage.updateContact(Number(req.params.id), input));
+      const updated = await updateContactService(Number(req.params.id), input);
+      if (!updated) return res.status(404).json({ message: "Contact not found" });
+      res.json(updated);
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(500).json({ message: "Internal error" });
@@ -461,6 +473,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.delete(api.contacts.delete.path, async (req, res) => {
     await storage.deleteContact(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.get(api.contacts.timeline.path, async (req, res) => {
+    try {
+      res.json(await getContactTimeline(Number(req.params.id)));
+    } catch (err) {
+      res.status(500).json({ message: "Internal error" });
+    }
+  });
+
+  app.post(api.contacts.addPhone.path, async (req, res) => {
+    try {
+      const input = api.contacts.addPhone.input.parse(req.body);
+      res.status(201).json(await addContactPhone(Number(req.params.id), input));
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: "Internal error" });
+    }
+  });
+
+  app.post(api.contacts.addEmail.path, async (req, res) => {
+    try {
+      const input = api.contacts.addEmail.input.parse(req.body);
+      res.status(201).json(await addContactEmail(Number(req.params.id), input));
+    } catch (err) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: "Internal error" });
+    }
   });
 
   // ─── Properties ───────────────────────────────────────────────────────────
@@ -553,6 +593,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!thread) return res.status(404).json({ message: "Thread not found" });
       res.json(await storage.getTasksByThread(threadId));
     } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Thread Contacts ──────────────────────────────────────────────────────
+  app.get(api.threads.contacts.list.path, async (req, res) => {
+    try {
+      res.json(await getThreadContacts(Number(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.threads.linkContact.path, async (req, res) => {
+    try {
+      const { contactId } = api.threads.linkContact.input.parse(req.body);
+      const threadId = Number(req.params.id);
+      const thread = await storage.getThread(threadId);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+      res.json(await linkThreadContact(threadId, contactId));
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.threads.unlinkContact.path, async (req, res) => {
+    try {
+      const { contactId } = api.threads.unlinkContact.input.parse(req.body);
+      await unlinkThreadContact(Number(req.params.id), contactId);
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(500).json({ message: err.message });
     }
   });

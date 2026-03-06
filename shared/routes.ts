@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import {
   insertUserSchema, insertMailboxSchema, insertEmailThreadSchema,
-  insertContactSchema, insertPropertySchema, insertUnitSchema,
+  insertContactSchema, insertContactPhoneSchema, insertContactEmailSchema,
+  insertPropertySchema, insertUnitSchema,
   insertIssueSchema, insertTaskSchema, insertCallSchema,
   users, mailboxes, emailThreads, messages, attachments,
-  contacts, properties, units, issues, tasks, calls,
+  contacts, contactPhones, contactEmails, threadContacts,
+  properties, units, issues, tasks, calls,
 } from './schema';
 
 export type NoteWithUser = {
@@ -40,6 +42,28 @@ export type TaskStatus = typeof TASK_STATUSES[number];
 
 export const TASK_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
 export type TaskPriority = typeof TASK_PRIORITIES[number];
+
+export const CONTACT_TYPES = ["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Other"] as const;
+export type ContactType = typeof CONTACT_TYPES[number];
+
+export type ContactWithDetails = typeof contacts.$inferSelect & {
+  phones: typeof contactPhones.$inferSelect[];
+  emails: typeof contactEmails.$inferSelect[];
+  threadCount: number;
+};
+
+export type ContactTimelineItem = {
+  id: string;
+  type: "thread" | "note" | "task";
+  timestamp: string;
+  summary: string;
+  detail?: string;
+  entityId: number;
+};
+
+export type ThreadContactWithContact = typeof threadContacts.$inferSelect & {
+  contact: typeof contacts.$inferSelect;
+};
 
 export const errorSchemas = {
   validation: z.object({ message: z.string(), field: z.string().optional() }),
@@ -164,14 +188,46 @@ export const api = {
     tasks: {
       list: { method: 'GET' as const, path: '/api/threads/:id/tasks' as const, responses: { 200: z.array(z.custom<TaskWithMeta>()) } },
     },
+    linkContact: {
+      method: 'POST' as const,
+      path: '/api/threads/:id/link-contact' as const,
+      input: z.object({ contactId: z.number() }),
+      responses: { 200: z.custom<ThreadContactWithContact>() },
+    },
+    unlinkContact: {
+      method: 'POST' as const,
+      path: '/api/threads/:id/unlink-contact' as const,
+      input: z.object({ contactId: z.number() }),
+      responses: { 200: z.object({ success: z.boolean() }) },
+    },
+    contacts: {
+      list: { method: 'GET' as const, path: '/api/threads/:id/contacts' as const, responses: { 200: z.array(z.custom<ThreadContactWithContact>()) } },
+    },
   },
 
   contacts: {
-    list: { method: 'GET' as const, path: '/api/contacts' as const, responses: { 200: z.array(z.custom<typeof contacts.$inferSelect>()) } },
-    get: { method: 'GET' as const, path: '/api/contacts/:id' as const, responses: { 200: z.custom<typeof contacts.$inferSelect>() } },
-    create: { method: 'POST' as const, path: '/api/contacts' as const, input: insertContactSchema, responses: { 201: z.custom<typeof contacts.$inferSelect>() } },
-    update: { method: 'PUT' as const, path: '/api/contacts/:id' as const, input: insertContactSchema.partial(), responses: { 200: z.custom<typeof contacts.$inferSelect>() } },
+    list: { method: 'GET' as const, path: '/api/contacts' as const, responses: { 200: z.array(z.custom<ContactWithDetails>()) } },
+    get: { method: 'GET' as const, path: '/api/contacts/:id' as const, responses: { 200: z.custom<ContactWithDetails>() } },
+    create: { method: 'POST' as const, path: '/api/contacts' as const, input: insertContactSchema, responses: { 201: z.custom<ContactWithDetails>() } },
+    update: { method: 'PATCH' as const, path: '/api/contacts/:id' as const, input: insertContactSchema.partial(), responses: { 200: z.custom<ContactWithDetails>() } },
     delete: { method: 'DELETE' as const, path: '/api/contacts/:id' as const, responses: { 204: z.void() } },
+    timeline: {
+      method: 'GET' as const,
+      path: '/api/contacts/:id/timeline' as const,
+      responses: { 200: z.array(z.custom<ContactTimelineItem>()) },
+    },
+    addPhone: {
+      method: 'POST' as const,
+      path: '/api/contacts/:id/phones' as const,
+      input: insertContactPhoneSchema.omit({ contactId: true }),
+      responses: { 201: z.custom<typeof contactPhones.$inferSelect>() },
+    },
+    addEmail: {
+      method: 'POST' as const,
+      path: '/api/contacts/:id/emails' as const,
+      input: insertContactEmailSchema.omit({ contactId: true }),
+      responses: { 201: z.custom<typeof contactEmails.$inferSelect>() },
+    },
   },
 
   properties: {

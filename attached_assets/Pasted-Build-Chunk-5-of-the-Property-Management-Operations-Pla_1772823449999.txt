@@ -1,0 +1,280 @@
+Build Chunk 5 of the Property Management Operations Platform.
+
+Chunks 1 through 4 are already complete. Do not rebuild the foundation, inbox workflow, or task system. Extend the existing application.
+
+This chunk is ONLY for the **Contacts and Identity Layer**.
+
+## Required stack
+Keep the existing stack exactly as-is:
+- Frontend: React
+- Backend: Node.js
+- Database: Postgres
+
+Do not replace or re-architect the stack.
+
+## Goal of Chunk 5
+Introduce a CRM-lite contact layer so the system can identify people across emails and later phone calls.
+
+This chunk should add:
+- contact records
+- multiple phone numbers
+- multiple email addresses
+- identity normalization
+- contact search
+- contact detail page
+- basic contact timeline from existing system data
+
+Do NOT build issues/cases, properties/units, RingEX integration, or AI in this chunk.
+
+## What this chunk must deliver
+1. contact records stored in Postgres
+2. multiple phones and email addresses per contact
+3. phone normalization and email normalization
+4. contact search
+5. contact detail page
+6. basic contact timeline built from existing threads, notes, and tasks
+7. manual linking/unlinking between contacts and email threads where needed
+
+## Important constraints
+- Do NOT rebuild earlier chunks
+- Do NOT use static mock contact data as the primary implementation
+- Do NOT build full CRM sales features
+- Do NOT build issues/cases yet
+- Do NOT build property/unit linking yet
+- Do NOT build RingEX integration yet
+- Contacts must be internal application data stored in Postgres
+- Identity handling must be designed for messy real-world mailbox data
+
+## Architecture requirements
+
+### Backend
+Add services such as:
+- `contactService`
+- `contactIdentityService`
+- `contactSearchService`
+- `contactTimelineService`
+
+Responsibilities:
+
+#### contactService
+- create and update contacts
+- retrieve contact detail
+- manage linked phone numbers and email addresses
+
+#### contactIdentityService
+- normalize email addresses to a consistent lowercase format
+- normalize phone numbers to E.164 where possible
+- match contacts against message senders/recipients
+- support safe manual linking/unlinking
+
+#### contactSearchService
+- search by name
+- search by email
+- search by phone number
+
+#### contactTimelineService
+- aggregate related tasks, notes, and email-thread activity for a contact
+- return timeline data for the contact detail page
+
+### API endpoints
+Create endpoints such as:
+
+- `GET /api/contacts`
+- `POST /api/contacts`
+- `GET /api/contacts/:id`
+- `PATCH /api/contacts/:id`
+- `GET /api/contacts/:id/timeline`
+- `POST /api/contacts/:id/phones`
+- `POST /api/contacts/:id/emails`
+- `POST /api/threads/:id/link-contact`
+- `POST /api/threads/:id/unlink-contact`
+
+Support contact search via query params such as:
+- name
+- email
+- phone
+
+## Database requirements
+
+Create migrations for the following tables.
+
+### contacts
+Fields:
+- `id`
+- `display_name`
+- `contact_type`
+- `primary_email` nullable
+- `primary_phone` nullable
+- `notes` nullable
+- `created_at`
+- `updated_at`
+
+Allowed contact types for this chunk:
+- `Owner`
+- `Tenant`
+- `Vendor`
+- `Board`
+- `Realtor`
+- `Attorney`
+- `Other`
+
+### contact_emails
+Fields:
+- `id`
+- `contact_id`
+- `email`
+- `is_primary`
+- `created_at`
+
+Requirements:
+- store normalized lowercase emails
+- enforce uniqueness where appropriate
+
+### contact_phones
+Fields:
+- `id`
+- `contact_id`
+- `phone_number`
+- `label` nullable
+- `is_primary`
+- `created_at`
+
+Requirements:
+- store normalized E.164 when possible
+- support labels such as Mobile, Office, Dispatch
+
+### thread_contacts
+Fields:
+- `id`
+- `thread_id`
+- `contact_id`
+- `relationship_type` nullable
+- `created_at`
+
+This allows explicit linking between threads and contacts when auto-matching is imperfect.
+
+Add proper foreign keys and indexes.
+
+## Identity and normalization requirements
+
+### Email normalization
+- lowercase all stored emails
+- trim whitespace
+- use normalized values for lookup and matching
+
+### Phone normalization
+- normalize to E.164 where possible
+- preserve raw input only if needed for display, but use normalized value for matching
+- support multiple phone numbers per contact
+
+### Matching behavior
+The system should be able to:
+- find an existing contact by sender email
+- find an existing contact by recipient email
+- later support phone matching cleanly
+- allow manual correction if the match is wrong or missing
+
+Do not over-automate matching in a risky way. Keep manual controls available.
+
+## Workflow requirements
+
+### Contact creation
+Users should be able to:
+- create a contact manually
+- add multiple email addresses
+- add multiple phone numbers
+- set contact type
+
+### Contact lookup
+Users should be able to search contacts by:
+- name
+- email
+- phone number
+
+### Thread linking
+From a thread, user should be able to:
+- view currently linked contact if any
+- manually link a contact
+- unlink a contact if needed
+
+### Contact timeline
+The contact detail page should show a timeline composed from existing system data such as:
+- linked email threads
+- internal notes on linked threads
+- linked tasks from those threads
+
+This timeline can be simple in this chunk, but it must be real data from Postgres.
+
+## Frontend requirements
+
+### Contacts page
+Create a dedicated Contacts page with:
+- searchable contact list
+- create contact action
+- basic filters if simple
+
+### Contact detail page
+Display:
+- display name
+- contact type
+- email addresses
+- phone numbers
+- linked thread summary
+- basic timeline
+
+### Thread view updates
+Add a contact section in thread view that shows:
+- linked contact if present
+- option to link a contact
+- option to unlink contact
+
+### UX requirements
+The contact experience should feel operational and practical:
+- fast search
+- easy manual correction
+- clear identity data
+- useful timeline
+- clean setup for later RingEX and issue tracking
+
+## Authorization and user handling
+Use the authenticated internal user model already in place.
+
+At minimum:
+- internal users can create and edit contacts
+- contact data remains internal to the app
+- timeline data respects existing system data visibility
+
+## Code quality requirements
+- keep business logic in backend services
+- keep React components modular
+- use migrations for schema changes
+- preserve compatibility with future issue tracking and phone integration
+- do not bury matching logic in UI components
+
+## Explicitly do not build yet
+Do not build any of the following in this chunk:
+- issues/cases
+- property/unit linking
+- RingEX integration
+- AI features
+
+## Definition of done
+Chunk 5 is complete when:
+1. users can create and edit contacts
+2. contacts can have multiple phones and emails
+3. contact search works by name, email, and phone
+4. threads can be manually linked to contacts
+5. contact detail pages show real timeline data from existing records
+6. all contact data persists in Postgres
+7. the system is cleanly ready for Chunk 6
+
+## Deliverables
+Produce:
+- Postgres migrations for contacts, contact_emails, contact_phones, and thread_contacts
+- backend contact and identity services
+- contact APIs
+- contacts UI and contact detail UI
+- thread/contact linking UI
+- brief explanation of normalization and matching decisions
+
+Again: this chunk is only the Contacts and Identity Layer. Build it as a real CRM-lite foundation for the operations platform, not a sales CRM.

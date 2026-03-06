@@ -203,7 +203,7 @@ export class DatabaseStorage implements IStorage {
   private async enrichTasks(rows: Task[]): Promise<TaskWithMeta[]> {
     if (!rows.length) return [];
     const allUsers = await db.select().from(users);
-    const threadIds = [...new Set(rows.map(t => t.threadId).filter((id): id is number => id !== null))];
+    const threadIds = Array.from(new Set(rows.map(t => t.threadId).filter((id): id is number => id !== null)));
     const threadRows = threadIds.length
       ? await db.select().from(emailThreads).where(inArray(emailThreads.id, threadIds))
       : [];

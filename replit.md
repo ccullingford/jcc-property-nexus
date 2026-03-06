@@ -42,8 +42,10 @@ client/src/
 - **email_threads** — id, mailbox_id, subject, microsoft_thread_id, assigned_user_id, contact_id, property_id, status, last_message_at, updated_at, created_at
 - **messages** — id, thread_id, microsoft_message_id, sender_email, sender_name, recipients[], subject, body, body_html, body_preview, received_at, has_attachments, is_read, updated_at
 - **attachments** — id, message_id, microsoft_attachment_id, name, content_type, size_bytes
-- **contacts** — id, display_name, contact_type, primary_email, primary_phone, created_at
-- **contact_phones** — id, contact_id, phone_number (E164), label
+- **contacts** — id, display_name, contact_type, primary_email, primary_phone, notes, updated_at, created_at; types = Owner|Tenant|Vendor|Board|Realtor|Attorney|Other
+- **contact_phones** — id, contact_id, phone_number (normalized E.164), label, is_primary, created_at
+- **contact_emails** — id, contact_id, email (normalized lowercase), is_primary, created_at
+- **thread_contacts** — id, thread_id, contact_id, relationship_type (nullable), created_at
 - **properties** — id, name, address, association_name, created_at
 - **units** — id, property_id, unit_number, owner_contact_id, tenant_contact_id
 - **issues** — id, title, description, contact_id, property_id, unit_id, assigned_user_id, status, priority, closed_at, created_at
@@ -122,6 +124,10 @@ Graph status: `GET /api/graph/status`
 - `server/services/syncService.ts` — Thread/message sync orchestration
 - `server/services/threadWorkflowService.ts` — Thread workflow: claim, assign, unassign, status change, notes, activity
 - `server/services/taskService.ts` — Task creation, update, assignment, status changes with activity logging
+- `server/services/contactIdentityService.ts` — Email normalization (lowercase+trim), phone normalization (E.164), findContactByEmail, findContactByPhone
+- `server/services/contactSearchService.ts` — searchContacts(query) by name/email/phone; getContactWithDetails(id)
+- `server/services/contactTimelineService.ts` — getContactTimeline(contactId) aggregating threads, notes, tasks
+- `server/services/contactService.ts` — createContact, updateContact, addContactPhone, addContactEmail, linkThreadContact, unlinkThreadContact, getThreadContacts
 
 ## Shared Types (shared/routes.ts)
 - `NoteWithUser` — note with author name/email
@@ -129,11 +135,16 @@ Graph status: `GET /api/graph/status`
 - `TaskWithMeta` — task enriched with assigneeName, assigneeEmail, createdByName, threadSubject
 - `TASK_STATUSES` — Open | In Progress | Completed | Cancelled
 - `TASK_PRIORITIES` — Low | Normal | High | Urgent
+- `CONTACT_TYPES` — Owner | Tenant | Vendor | Board | Realtor | Attorney | Other
+- `ContactWithDetails` — contact enriched with phones[], emails[], threadCount
+- `ContactTimelineItem` — timeline item with type (thread|note|task), timestamp, summary, detail, entityId
+- `ThreadContactWithContact` — thread_contacts row enriched with the full contact object
 
 ## Frontend Pages
 - `/login` — Microsoft OAuth sign-in
-- `/inbox` — Three-pane inbox: thread list | message view | thread sidebar (ownership, status, tasks, notes, activity)
+- `/inbox` — Three-pane inbox: thread list | message view | thread sidebar (contact link, ownership, status, tasks, notes, activity)
 - `/tasks` — Task dashboard with My Tasks / Team Tasks / Overdue tabs; Create Task dialog; Edit Task dialog
+- `/contacts` — Two-panel contacts: left=searchable list; right=detail (emails, phones, timeline) + inline create/edit
 - `/admin` — Mailbox management
 - `/call-pop` — RingEX call pop screen
 
@@ -143,3 +154,4 @@ Graph status: `GET /api/graph/status`
 - **Chunk 2b**: Microsoft OAuth — PKCE auth flow, RBAC middleware, login page, session management
 - **Chunk 3**: Shared Inbox Action Workflow — claim/assign/unassign threads, status changes (Open/Waiting/Closed/Archived), internal notes, activity log, thread sidebar UI
 - **Chunk 4**: Task System — app-native tasks in Postgres, task dashboard (My/Team/Overdue tabs), create/edit/delete tasks, task-thread linking, thread sidebar task section, activity logging for task events
+- **Chunk 5**: Contacts and Identity Layer — contacts/contact_emails/contact_phones/thread_contacts tables, identity normalization services, search by name/email/phone, contact detail page with timeline, thread-sidebar contact section with link/unlink, CONTACT_TYPES enum

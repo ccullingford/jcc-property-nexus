@@ -34,6 +34,55 @@ export type Mailbox = typeof mailboxes.$inferSelect;
 export type InsertMailbox = z.infer<typeof insertMailboxSchema>;
 
 // ============================================================
+// CONTACTS
+// ============================================================
+export const contacts = pgTable("contacts", {
+  id: serial("id").primaryKey(),
+  displayName: text("display_name").notNull(),
+  contactType: text("contact_type").notNull().default("Other"),
+  primaryEmail: text("primary_email"),
+  primaryPhone: text("primary_phone"),
+  notes: text("notes"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true, updatedAt: true });
+export type Contact = typeof contacts.$inferSelect;
+export type InsertContact = z.infer<typeof insertContactSchema>;
+
+// ============================================================
+// CONTACT PHONES
+// ============================================================
+export const contactPhones = pgTable("contact_phones", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  phoneNumber: text("phone_number").notNull(),
+  label: text("label"),
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertContactPhoneSchema = createInsertSchema(contactPhones).omit({ id: true, createdAt: true });
+export type ContactPhone = typeof contactPhones.$inferSelect;
+export type InsertContactPhone = z.infer<typeof insertContactPhoneSchema>;
+
+// ============================================================
+// CONTACT EMAILS
+// ============================================================
+export const contactEmails = pgTable("contact_emails", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  email: text("email").notNull(),
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertContactEmailSchema = createInsertSchema(contactEmails).omit({ id: true, createdAt: true });
+export type ContactEmail = typeof contactEmails.$inferSelect;
+export type InsertContactEmail = z.infer<typeof insertContactEmailSchema>;
+
+// ============================================================
 // EMAIL THREADS
 // ============================================================
 export const emailThreads = pgTable("email_threads", {
@@ -53,6 +102,21 @@ export const emailThreads = pgTable("email_threads", {
 export const insertEmailThreadSchema = createInsertSchema(emailThreads).omit({ id: true, createdAt: true });
 export type EmailThread = typeof emailThreads.$inferSelect;
 export type InsertEmailThread = z.infer<typeof insertEmailThreadSchema>;
+
+// ============================================================
+// THREAD CONTACTS (explicit many-to-many thread↔contact linking)
+// ============================================================
+export const threadContacts = pgTable("thread_contacts", {
+  id: serial("id").primaryKey(),
+  threadId: integer("thread_id").notNull().references(() => emailThreads.id),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  relationshipType: text("relationship_type"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertThreadContactSchema = createInsertSchema(threadContacts).omit({ id: true, createdAt: true });
+export type ThreadContact = typeof threadContacts.$inferSelect;
+export type InsertThreadContact = z.infer<typeof insertThreadContactSchema>;
 
 // ============================================================
 // MESSAGES
@@ -94,36 +158,6 @@ export const attachments = pgTable("attachments", {
 export const insertAttachmentSchema = createInsertSchema(attachments).omit({ id: true, createdAt: true });
 export type Attachment = typeof attachments.$inferSelect;
 export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
-
-// ============================================================
-// CONTACTS
-// ============================================================
-export const contacts = pgTable("contacts", {
-  id: serial("id").primaryKey(),
-  displayName: text("display_name").notNull(),
-  contactType: text("contact_type").notNull().default("Other"),
-  primaryEmail: text("primary_email"),
-  primaryPhone: text("primary_phone"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
-
-export const insertContactSchema = createInsertSchema(contacts).omit({ id: true, createdAt: true });
-export type Contact = typeof contacts.$inferSelect;
-export type InsertContact = z.infer<typeof insertContactSchema>;
-
-// ============================================================
-// CONTACT PHONES
-// ============================================================
-export const contactPhones = pgTable("contact_phones", {
-  id: serial("id").primaryKey(),
-  contactId: integer("contact_id").notNull().references(() => contacts.id),
-  phoneNumber: text("phone_number").notNull(),
-  label: text("label"),
-});
-
-export const insertContactPhoneSchema = createInsertSchema(contactPhones).omit({ id: true });
-export type ContactPhone = typeof contactPhones.$inferSelect;
-export type InsertContactPhone = z.infer<typeof insertContactPhoneSchema>;
 
 // ============================================================
 // PROPERTIES

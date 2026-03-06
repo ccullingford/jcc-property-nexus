@@ -15,9 +15,10 @@ import {
   UserCheck, UserX, User, MessageSquare, Activity,
   Send, ChevronRight, CheckSquare, Plus, Circle,
   CheckCircle2, XCircle, Clock, AlertTriangle, Calendar,
+  Users, Search, Link2, Unlink, X,
 } from "lucide-react";
 import type { User as UserType } from "@shared/schema";
-import type { NoteWithUser, ActivityWithUser, TaskWithMeta } from "@shared/routes";
+import type { NoteWithUser, ActivityWithUser, TaskWithMeta, ContactWithDetails, ThreadContactWithContact } from "@shared/routes";
 import { TASK_STATUSES, TASK_PRIORITIES } from "@shared/routes";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -65,6 +66,101 @@ function priorityVariant(p: string): "default" | "secondary" | "destructive" | "
 function isDueDateOverdue(d: string | Date | null): boolean {
   if (!d) return false;
   return new Date(d).getTime() < Date.now();
+}
+
+// ─── Link Contact Dialog ───────────────────────────────────────────────────────
+
+interface LinkContactDialogProps {
+  open: boolean;
+  onClose: () => void;
+  threadId: number;
+}
+
+function LinkContactDialog({ open, onClose, threadId }: LinkContactDialogProps) {
+  const { toast } = useToast();
+  const [query, setQuery] = useState("");
+
+  const { data: results, isLoading } = useQuery<ContactWithDetails[]>({
+    queryKey: ["/api/contacts", { q: query }],
+    queryFn: async () => {
+      const url = query.trim()
+        ? `/api/contacts?q=${encodeURIComponent(query.trim())}`
+        : "/api/contacts";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: (contactId: number) =>
+      apiRequest("POST", `/api/threads/${threadId}/link-contact`, { contactId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
+      toast({ title: "Contact linked" });
+      onClose();
+      setQuery("");
+    },
+    onError: (e: Error) => toast({ title: "Failed to link contact", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Link Contact</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search by name, email, phone…"
+              className="pl-8"
+              data-testid="input-link-contact-search"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-64 overflow-y-auto space-y-0.5" data-testid="link-contact-results">
+            {isLoading ? (
+              <div className="space-y-2 py-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : !results || results.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                {query ? "No contacts found." : "No contacts yet."}
+              </p>
+            ) : (
+              results.map(c => (
+                <button
+                  key={c.id}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-muted/70 text-left transition-colors"
+                  onClick={() => linkMutation.mutate(c.id)}
+                  disabled={linkMutation.isPending}
+                  data-testid={`link-contact-option-${c.id}`}
+                >
+                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-semibold text-primary">{c.displayName?.[0]?.toUpperCase()}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{c.displayName}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {c.contactType} · {c.primaryEmail ?? c.emails[0]?.email ?? c.primaryPhone ?? ""}
+                    </p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ─── Create Task Dialog (inline, for thread context) ──────────────────────────
@@ -203,6 +299,7 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
   const { toast } = useToast();
   const [noteBody, setNoteBody] = useState("");
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
+  const [linkContactOpen, setLinkContactOpen] = useState(false);
 
   const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/users"] });
 
@@ -284,6 +381,26 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
     onError: (e: Error) => toast({ title: "Failed to update task", description: e.message, variant: "destructive" }),
   });
 
+  const { data: threadContacts, isLoading: loadingContacts } = useQuery<ThreadContactWithContact[]>({
+    queryKey: ["/api/threads", threadId, "contacts"],
+    queryFn: async () => {
+      const res = await fetch(`/api/threads/${threadId}/contacts`, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+  });
+
+  const unlinkContactMutation = useMutation({
+    mutationFn: (contactId: number) =>
+      apiRequest("POST", `/api/threads/${threadId}/unlink-contact`, { contactId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
+      toast({ title: "Contact unlinked" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to unlink contact", description: e.message, variant: "destructive" }),
+  });
+
   const assignedUser = users?.find(u => u.id === assignedUserId);
 
   const isMutating =
@@ -295,6 +412,77 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
   return (
     <ScrollArea className="h-full border-l border-border bg-card">
       <div className="p-4 space-y-5">
+
+        {/* ─── Contact ───────────────────────────────────────────────── */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <Users className="h-3.5 w-3.5" />
+              Contact
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setLinkContactOpen(true)}
+              data-testid="button-link-contact"
+            >
+              <Link2 className="h-3 w-3 mr-0.5" />
+              Link
+            </Button>
+          </div>
+
+          {loadingContacts ? (
+            <Skeleton className="h-10 w-full rounded" />
+          ) : !threadContacts || threadContacts.length === 0 ? (
+            <div className="py-1">
+              <p className="text-xs text-muted-foreground" data-testid="contact-unlinked">No contact linked.</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="w-full mt-2 h-7 text-xs"
+                onClick={() => setLinkContactOpen(true)}
+                data-testid="button-link-first-contact"
+              >
+                <Link2 className="h-3 w-3 mr-1" />
+                Link Contact
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-1.5" data-testid="thread-contacts-list">
+              {threadContacts.map(tc => (
+                <div
+                  key={tc.id}
+                  className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-2 bg-muted/20"
+                  data-testid={`thread-contact-${tc.contactId}`}
+                >
+                  <div className="h-6 w-6 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-semibold text-primary">
+                      {tc.contact.displayName?.[0]?.toUpperCase() ?? "?"}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate" data-testid={`contact-name-${tc.contactId}`}>
+                      {tc.contact.displayName}
+                    </p>
+                    <p className="text-xs text-muted-foreground">{tc.contact.contactType}</p>
+                  </div>
+                  <button
+                    className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                    title="Unlink contact"
+                    onClick={() => unlinkContactMutation.mutate(tc.contactId)}
+                    disabled={unlinkContactMutation.isPending}
+                    data-testid={`button-unlink-contact-${tc.contactId}`}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+
+        <Separator />
 
         {/* ─── Ownership ─────────────────────────────────────────────── */}
         <section>
@@ -608,6 +796,12 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
         threadId={threadId}
         defaultTitle={threadSubject}
         users={users}
+      />
+
+      <LinkContactDialog
+        open={linkContactOpen}
+        onClose={() => setLinkContactOpen(false)}
+        threadId={threadId}
       />
     </ScrollArea>
   );
