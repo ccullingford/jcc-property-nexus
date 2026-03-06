@@ -4,17 +4,21 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   UserCheck, UserX, User, MessageSquare, Activity,
-  Send, ChevronRight,
+  Send, ChevronRight, CheckSquare, Plus, Circle,
+  CheckCircle2, XCircle, Clock, AlertTriangle, Calendar,
 } from "lucide-react";
 import type { User as UserType } from "@shared/schema";
-import type { NoteWithUser, ActivityWithUser } from "@shared/routes";
+import type { NoteWithUser, ActivityWithUser, TaskWithMeta } from "@shared/routes";
+import { TASK_STATUSES, TASK_PRIORITIES } from "@shared/routes";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -30,14 +34,6 @@ function relativeTime(ts: string | Date): string {
 }
 
 const STATUS_OPTIONS = ["Open", "Waiting", "Closed", "Archived"] as const;
-type ThreadStatus = typeof STATUS_OPTIONS[number];
-
-function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "Open") return "default";
-  if (status === "Waiting") return "outline";
-  if (status === "Closed") return "secondary";
-  return "secondary";
-}
 
 function activityDescription(entry: ActivityWithUser): string {
   const actor = entry.actorName ?? "Someone";
@@ -48,22 +44,165 @@ function activityDescription(entry: ActivityWithUser): string {
     case "unassigned": return `${actor} removed the assignee`;
     case "status_changed": return `${actor} changed status: ${meta.from} → ${meta.to}`;
     case "note_added": return `${actor} added a note`;
+    case "task_created": return `${actor} created task: ${meta.taskTitle ?? ""}`;
     default: return `${actor} performed ${entry.action}`;
   }
+}
+
+function taskStatusIcon(s: string) {
+  if (s === "Completed") return <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" />;
+  if (s === "Cancelled") return <XCircle className="h-3 w-3 text-muted-foreground shrink-0" />;
+  if (s === "In Progress") return <Clock className="h-3 w-3 text-blue-500 shrink-0" />;
+  return <Circle className="h-3 w-3 text-muted-foreground shrink-0" />;
+}
+
+function priorityVariant(p: string): "default" | "secondary" | "destructive" | "outline" {
+  if (p === "Urgent") return "destructive";
+  if (p === "High") return "default";
+  return "outline";
+}
+
+function isDueDateOverdue(d: string | Date | null): boolean {
+  if (!d) return false;
+  return new Date(d).getTime() < Date.now();
+}
+
+// ─── Create Task Dialog (inline, for thread context) ──────────────────────────
+
+interface CreateTaskDialogProps {
+  open: boolean;
+  onClose: () => void;
+  threadId: number;
+  defaultTitle: string;
+  users: UserType[] | undefined;
+}
+
+function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: CreateTaskDialogProps) {
+  const { toast } = useToast();
+  const [title, setTitle] = useState(defaultTitle);
+  const [priority, setPriority] = useState("Normal");
+  const [assignedUserId, setAssignedUserId] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [description, setDescription] = useState("");
+
+  const createMutation = useMutation({
+    mutationFn: (data: Record<string, unknown>) => apiRequest("POST", "/api/tasks", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "activity"] });
+      toast({ title: "Task created" });
+      onClose();
+      setTitle(defaultTitle); setPriority("Normal"); setAssignedUserId(""); setDueDate(""); setDescription("");
+    },
+    onError: (e: Error) => toast({ title: "Failed to create task", description: e.message, variant: "destructive" }),
+  });
+
+  function handleSubmit() {
+    if (!title.trim()) return;
+    createMutation.mutate({
+      title: title.trim(),
+      description: description.trim() || null,
+      priority,
+      assignedUserId: assignedUserId ? Number(assignedUserId) : null,
+      dueDate: dueDate || null,
+      threadId,
+    });
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>Create Task from Thread</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Title *</label>
+            <Input
+              value={title}
+              onChange={e => setTitle(e.target.value)}
+              placeholder="Task title"
+              data-testid="input-thread-task-title"
+              onKeyDown={e => e.key === "Enter" && handleSubmit()}
+            />
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Description</label>
+            <Textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              rows={2}
+              className="text-sm resize-none"
+              data-testid="input-thread-task-description"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Priority</label>
+              <Select value={priority} onValueChange={setPriority}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TASK_PRIORITIES.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Due date</label>
+              <Input
+                type="date"
+                value={dueDate}
+                onChange={e => setDueDate(e.target.value)}
+                className="h-8 text-xs"
+                data-testid="input-thread-task-due-date"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Assign to</label>
+            <Select value={assignedUserId} onValueChange={setAssignedUserId}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-assignee">
+                <SelectValue placeholder="Unassigned" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">Unassigned</SelectItem>
+                {users?.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            onClick={handleSubmit}
+            disabled={!title.trim() || createMutation.isPending}
+            data-testid="button-thread-task-submit"
+          >
+            {createMutation.isPending ? "Creating…" : "Create Task"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ─── Thread Sidebar ───────────────────────────────────────────────────────────
 
 interface Props {
   threadId: number;
+  threadSubject: string;
   assignedUserId: number | null;
   status: string;
   currentUser: UserType;
 }
 
-export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }: Props) {
+export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status, currentUser }: Props) {
   const { toast } = useToast();
   const [noteBody, setNoteBody] = useState("");
+  const [createTaskOpen, setCreateTaskOpen] = useState(false);
 
   const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/users"] });
 
@@ -85,6 +224,15 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
     },
   });
 
+  const { data: threadTasks, isLoading: loadingTasks } = useQuery<TaskWithMeta[]>({
+    queryKey: ["/api/threads", threadId, "tasks"],
+    queryFn: async () => {
+      const res = await fetch(`/api/threads/${threadId}/tasks`, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+  });
+
   function invalidateThread() {
     queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
     queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "activity"] });
@@ -97,8 +245,7 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
   });
 
   const assignMutation = useMutation({
-    mutationFn: (userId: number) =>
-      apiRequest("POST", `/api/threads/${threadId}/assign`, { userId }),
+    mutationFn: (userId: number) => apiRequest("POST", `/api/threads/${threadId}/assign`, { userId }),
     onSuccess: () => { invalidateThread(); toast({ title: "Thread assigned" }); },
     onError: (e: Error) => toast({ title: "Failed to assign", description: e.message, variant: "destructive" }),
   });
@@ -116,8 +263,7 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
   });
 
   const noteMutation = useMutation({
-    mutationFn: (body: string) =>
-      apiRequest("POST", `/api/threads/${threadId}/notes`, { body }),
+    mutationFn: (body: string) => apiRequest("POST", `/api/threads/${threadId}/notes`, { body }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "notes"] });
       queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "activity"] });
@@ -127,8 +273,18 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
     onError: (e: Error) => toast({ title: "Failed to add note", description: e.message, variant: "destructive" }),
   });
 
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: number; status: string }) =>
+      apiRequest("PATCH", `/api/tasks/${taskId}`, { status }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "activity"] });
+    },
+    onError: (e: Error) => toast({ title: "Failed to update task", description: e.message, variant: "destructive" }),
+  });
+
   const assignedUser = users?.find(u => u.id === assignedUserId);
-  const otherUsers = users?.filter(u => u.id !== assignedUserId) ?? [];
 
   const isMutating =
     claimMutation.isPending ||
@@ -163,16 +319,13 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
                 <UserCheck className="h-3.5 w-3.5 mr-1.5" />
                 Claim for myself
               </Button>
-              {otherUsers.length > 0 && (
-                <Select
-                  onValueChange={(v) => assignMutation.mutate(Number(v))}
-                  disabled={isMutating}
-                >
+              {users && users.length > 0 && (
+                <Select onValueChange={(v) => assignMutation.mutate(Number(v))} disabled={isMutating}>
                   <SelectTrigger className="h-8 text-xs" data-testid="select-assign">
                     <SelectValue placeholder="Assign to..." />
                   </SelectTrigger>
                   <SelectContent>
-                    {users?.map(u => (
+                    {users.map(u => (
                       <SelectItem key={u.id} value={String(u.id)}>
                         {u.name ?? u.email}
                       </SelectItem>
@@ -211,10 +364,7 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
                   <UserX className="h-3.5 w-3.5" />
                 </Button>
               </div>
-              <Select
-                onValueChange={(v) => assignMutation.mutate(Number(v))}
-                disabled={isMutating}
-              >
+              <Select onValueChange={(v) => assignMutation.mutate(Number(v))} disabled={isMutating}>
                 <SelectTrigger className="h-8 text-xs" data-testid="select-reassign">
                   <SelectValue placeholder="Reassign to..." />
                 </SelectTrigger>
@@ -254,6 +404,97 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
               </button>
             ))}
           </div>
+        </section>
+
+        <Separator />
+
+        {/* ─── Tasks ─────────────────────────────────────────────────── */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <CheckSquare className="h-3.5 w-3.5" />
+              Tasks
+              {threadTasks && threadTasks.length > 0 && (
+                <Badge variant="secondary" className="h-4 px-1.5 text-xs">{threadTasks.length}</Badge>
+              )}
+            </p>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => setCreateTaskOpen(true)}
+              data-testid="button-create-thread-task"
+            >
+              <Plus className="h-3 w-3 mr-0.5" />
+              Create
+            </Button>
+          </div>
+
+          {loadingTasks ? (
+            <div className="space-y-2">
+              <Skeleton className="h-10 w-full rounded" />
+            </div>
+          ) : !threadTasks || threadTasks.length === 0 ? (
+            <div className="text-center py-3">
+              <p className="text-xs text-muted-foreground" data-testid="tasks-empty">No tasks yet.</p>
+              <Button
+                size="sm"
+                variant="outline"
+                className="mt-2 h-7 text-xs w-full"
+                onClick={() => setCreateTaskOpen(true)}
+                data-testid="button-create-first-task"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                Create Task
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-1" data-testid="thread-tasks-list">
+              {threadTasks.map(task => {
+                const overdue = isDueDateOverdue(task.dueDate) && task.status !== "Completed" && task.status !== "Cancelled";
+                return (
+                  <div
+                    key={task.id}
+                    className="flex items-start gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 group"
+                    data-testid={`thread-task-${task.id}`}
+                  >
+                    {taskStatusIcon(task.status)}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-xs font-medium leading-tight ${task.status === "Completed" || task.status === "Cancelled" ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                        {task.title}
+                      </p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        {task.priority !== "Normal" && (
+                          <Badge variant={priorityVariant(task.priority)} className="text-xs h-4 px-1">
+                            {task.priority}
+                          </Badge>
+                        )}
+                        {task.assigneeName && (
+                          <span className="text-xs text-muted-foreground">{task.assigneeName}</span>
+                        )}
+                        {task.dueDate && (
+                          <span className={`text-xs flex items-center gap-0.5 ${overdue ? "text-destructive" : "text-muted-foreground"}`}>
+                            {overdue ? <AlertTriangle className="h-2.5 w-2.5" /> : <Calendar className="h-2.5 w-2.5" />}
+                            {new Date(task.dueDate).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    {task.status !== "Completed" && task.status !== "Cancelled" && (
+                      <button
+                        className="opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Mark complete"
+                        onClick={() => updateTaskStatusMutation.mutate({ taskId: task.id, status: "Completed" })}
+                        data-testid={`button-complete-task-${task.id}`}
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5 text-muted-foreground hover:text-green-500 transition-colors" />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <Separator />
@@ -360,6 +601,14 @@ export function ThreadSidebar({ threadId, assignedUserId, status, currentUser }:
         </section>
 
       </div>
+
+      <CreateTaskDialog
+        open={createTaskOpen}
+        onClose={() => setCreateTaskOpen(false)}
+        threadId={threadId}
+        defaultTitle={threadSubject}
+        users={users}
+      />
     </ScrollArea>
   );
 }

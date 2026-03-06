@@ -13,6 +13,10 @@ import {
   getActivityWithUsers,
   isValidStatus,
 } from "./services/threadWorkflowService";
+import {
+  createTask as createTaskService,
+  updateTask as updateTaskService,
+} from "./services/taskService";
 import expressSession from "express-session";
 import { syncMailbox } from "./services/syncService";
 import { isGraphConfigured } from "./services/graphService";
@@ -541,14 +545,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(204).send();
   });
 
+  // ─── Thread Tasks ─────────────────────────────────────────────────────────
+  app.get(api.threads.tasks.list.path, async (req, res) => {
+    try {
+      const threadId = Number(req.params.id);
+      const thread = await storage.getThread(threadId);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+      res.json(await storage.getTasksByThread(threadId));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ─── Tasks ────────────────────────────────────────────────────────────────
   app.get(api.tasks.list.path, async (req, res) => {
-    const issueId = req.query.issueId ? Number(req.query.issueId) : undefined;
-    res.json(await storage.getTasks(issueId));
+    try {
+      const { assignedToMe, overdue, status } = req.query;
+      const options: { assignedUserId?: number; overdue?: boolean; status?: string } = {};
+      if (assignedToMe === "true") options.assignedUserId = req.session.userId!;
+      if (overdue === "true") options.overdue = true;
+      if (typeof status === "string" && status) options.status = status;
+      res.json(await storage.getTasksFiltered(options));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.get(api.tasks.get.path, async (req, res) => {
-    const task = await storage.getTask(Number(req.params.id));
+    const task = await storage.getTaskWithMeta(Number(req.params.id));
     if (!task) return res.status(404).json({ message: "Task not found" });
     res.json(task);
   });
@@ -556,20 +580,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post(api.tasks.create.path, async (req, res) => {
     try {
       const input = api.tasks.create.input.parse(req.body);
-      res.status(201).json(await storage.createTask(input));
-    } catch (err) {
+      const task = await createTaskService(input, req.session.userId!, storage);
+      const meta = await storage.getTaskWithMeta(task.id);
+      res.status(201).json(meta ?? task);
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: "Internal error" });
+      res.status(err.status ?? 500).json({ message: err.message });
     }
   });
 
-  app.put(api.tasks.update.path, async (req, res) => {
+  app.patch(api.tasks.update.path, async (req, res) => {
     try {
       const input = api.tasks.update.input.parse(req.body);
-      res.json(await storage.updateTask(Number(req.params.id), input));
-    } catch (err) {
+      const task = await updateTaskService(Number(req.params.id), input, req.session.userId!, storage);
+      const meta = await storage.getTaskWithMeta(task.id);
+      res.json(meta ?? task);
+    } catch (err: any) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: "Internal error" });
+      res.status(err.status ?? 500).json({ message: err.message });
     }
   });
 

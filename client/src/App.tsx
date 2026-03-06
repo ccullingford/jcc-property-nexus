@@ -10,8 +10,8 @@ import { Login } from "@/pages/login";
 import { Admin } from "@/pages/admin";
 import { CallPopPage } from "@/pages/call-pop";
 import { InboxPage } from "@/pages/inbox";
+import { TasksPage } from "@/pages/tasks";
 import {
-  TasksPage,
   IssuesPage,
   ContactsPage,
   PropertiesPage,

@@ -47,7 +47,7 @@ client/src/
 - **properties** — id, name, address, association_name, created_at
 - **units** — id, property_id, unit_number, owner_contact_id, tenant_contact_id
 - **issues** — id, title, description, contact_id, property_id, unit_id, assigned_user_id, status, priority, closed_at, created_at
-- **tasks** — id, issue_id, thread_id, assigned_user_id, title, description, status, priority, due_date, created_at
+- **tasks** — id, issue_id, thread_id, assigned_user_id, created_by_user_id, title, description, status (Open|In Progress|Completed|Cancelled), priority (Low|Normal|High|Urgent), due_date, updated_at, created_at
 - **notes** — id, issue_id, thread_id, user_id, body, created_at
 - **calls** — id, phone_number, contact_id, user_id, started_at, ended_at, direction, notes, issue_id
 - **activity_log** — id, entity_type, entity_id, action, user_id, metadata, created_at
@@ -84,7 +84,12 @@ Roles: admin > manager > staff. `requireRole` middleware enforces per-route.
 - `GET/POST /api/properties` — properties CRUD
 - `GET /api/properties/:id/units` — units per property
 - `GET/POST /api/issues` — issues CRUD
-- `GET/POST /api/tasks` — tasks CRUD
+- `GET /api/tasks` — list tasks (query params: `assignedToMe=true`, `overdue=true`, `status=Open`)
+- `POST /api/tasks` — create task (sets createdByUserId from session, logs activity)
+- `GET /api/tasks/:id` — get task with enriched meta (assignee name, thread subject)
+- `PATCH /api/tasks/:id` — update task (status, priority, assignee, due date — logs activity on status/assignee change)
+- `DELETE /api/tasks/:id` — delete task
+- `GET /api/threads/:id/tasks` — get tasks linked to a thread
 - `GET/POST /api/calls` — call log
 - `GET /api/calls/pop?phone=+1...` — RingEX call pop lookup
 - `GET /api/threads` — email threads (filtered by mailbox)
@@ -112,13 +117,29 @@ Sync endpoint: `POST /api/mailboxes/:id/sync`
 Graph status: `GET /api/graph/status`
 
 ## Services
-- `server/services/graphService.ts` — Microsoft Graph mailbox sync
+- `server/services/graphService.ts` — Microsoft Graph mailbox sync (app-only credentials via getSyncToken)
 - `server/services/microsoftAuthService.ts` — PKCE OAuth helpers
 - `server/services/syncService.ts` — Thread/message sync orchestration
 - `server/services/threadWorkflowService.ts` — Thread workflow: claim, assign, unassign, status change, notes, activity
+- `server/services/taskService.ts` — Task creation, update, assignment, status changes with activity logging
+
+## Shared Types (shared/routes.ts)
+- `NoteWithUser` — note with author name/email
+- `ActivityWithUser` — activity log entry with actor name
+- `TaskWithMeta` — task enriched with assigneeName, assigneeEmail, createdByName, threadSubject
+- `TASK_STATUSES` — Open | In Progress | Completed | Cancelled
+- `TASK_PRIORITIES` — Low | Normal | High | Urgent
+
+## Frontend Pages
+- `/login` — Microsoft OAuth sign-in
+- `/inbox` — Three-pane inbox: thread list | message view | thread sidebar (ownership, status, tasks, notes, activity)
+- `/tasks` — Task dashboard with My Tasks / Team Tasks / Overdue tabs; Create Task dialog; Edit Task dialog
+- `/admin` — Mailbox management
+- `/call-pop` — RingEX call pop screen
 
 ## Build Chunks Completed
 - **Chunk 1**: Foundation — app shell, schema, users, mailboxes, full DB schema
 - **Chunk 2**: Inbox Read — Microsoft Graph sync service, full inbox UI (thread list + message view), attachments
 - **Chunk 2b**: Microsoft OAuth — PKCE auth flow, RBAC middleware, login page, session management
 - **Chunk 3**: Shared Inbox Action Workflow — claim/assign/unassign threads, status changes (Open/Waiting/Closed/Archived), internal notes, activity log, thread sidebar UI
+- **Chunk 4**: Task System — app-native tasks in Postgres, task dashboard (My/Team/Overdue tabs), create/edit/delete tasks, task-thread linking, thread sidebar task section, activity logging for task events

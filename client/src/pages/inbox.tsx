@@ -320,6 +320,7 @@ function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; current
         <div className="w-64 shrink-0 min-h-0 overflow-hidden" data-testid="thread-sidebar">
           <ThreadSidebar
             threadId={thread.id}
+            threadSubject={thread.subject}
             assignedUserId={thread.assignedUserId ?? null}
             status={thread.status}
             currentUser={currentUser}

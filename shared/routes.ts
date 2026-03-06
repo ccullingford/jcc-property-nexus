@@ -28,12 +28,33 @@ export type ActivityWithUser = {
   actorName: string | null;
 };
 
+export type TaskWithMeta = typeof tasks.$inferSelect & {
+  assigneeName: string | null;
+  assigneeEmail: string | null;
+  createdByName: string | null;
+  threadSubject: string | null;
+};
+
+export const TASK_STATUSES = ["Open", "In Progress", "Completed", "Cancelled"] as const;
+export type TaskStatus = typeof TASK_STATUSES[number];
+
+export const TASK_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
+export type TaskPriority = typeof TASK_PRIORITIES[number];
+
 export const errorSchemas = {
   validation: z.object({ message: z.string(), field: z.string().optional() }),
   notFound: z.object({ message: z.string() }),
   unauthorized: z.object({ message: z.string() }),
   internal: z.object({ message: z.string() }),
 };
+
+const createTaskInput = insertTaskSchema.extend({
+  title: z.string().min(1, "Title is required"),
+  status: z.enum(TASK_STATUSES).optional().default("Open"),
+  priority: z.enum(TASK_PRIORITIES).optional().default("Normal"),
+});
+
+const updateTaskInput = createTaskInput.partial();
 
 export const api = {
   auth: {
@@ -140,6 +161,9 @@ export const api = {
       path: '/api/threads/:id/activity' as const,
       responses: { 200: z.array(z.custom<ActivityWithUser>()) },
     },
+    tasks: {
+      list: { method: 'GET' as const, path: '/api/threads/:id/tasks' as const, responses: { 200: z.array(z.custom<TaskWithMeta>()) } },
+    },
   },
 
   contacts: {
@@ -171,10 +195,10 @@ export const api = {
   },
 
   tasks: {
-    list: { method: 'GET' as const, path: '/api/tasks' as const, responses: { 200: z.array(z.custom<typeof tasks.$inferSelect>()) } },
-    get: { method: 'GET' as const, path: '/api/tasks/:id' as const, responses: { 200: z.custom<typeof tasks.$inferSelect>() } },
-    create: { method: 'POST' as const, path: '/api/tasks' as const, input: insertTaskSchema, responses: { 201: z.custom<typeof tasks.$inferSelect>() } },
-    update: { method: 'PUT' as const, path: '/api/tasks/:id' as const, input: insertTaskSchema.partial(), responses: { 200: z.custom<typeof tasks.$inferSelect>() } },
+    list: { method: 'GET' as const, path: '/api/tasks' as const, input: z.object({ assignedToMe: z.boolean().optional(), overdue: z.boolean().optional(), status: z.string().optional() }), responses: { 200: z.array(z.custom<TaskWithMeta>()) } },
+    get: { method: 'GET' as const, path: '/api/tasks/:id' as const, responses: { 200: z.custom<TaskWithMeta>() } },
+    create: { method: 'POST' as const, path: '/api/tasks' as const, input: createTaskInput, responses: { 201: z.custom<TaskWithMeta>() } },
+    update: { method: 'PATCH' as const, path: '/api/tasks/:id' as const, input: updateTaskInput, responses: { 200: z.custom<TaskWithMeta>() } },
     delete: { method: 'DELETE' as const, path: '/api/tasks/:id' as const, responses: { 204: z.void() } },
   },
 

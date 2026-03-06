@@ -184,15 +184,17 @@ export const tasks = pgTable("tasks", {
   issueId: integer("issue_id").references(() => issues.id),
   threadId: integer("thread_id").references(() => emailThreads.id),
   assignedUserId: integer("assigned_user_id").references(() => users.id),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
   title: text("title").notNull(),
   description: text("description"),
   status: text("status").notNull().default("Open"),
-  priority: text("priority").notNull().default("Medium"),
+  priority: text("priority").notNull().default("Normal"),
   dueDate: timestamp("due_date"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true });
+export const insertTaskSchema = createInsertSchema(tasks).omit({ id: true, createdAt: true, updatedAt: true });
 export type Task = typeof tasks.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 

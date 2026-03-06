@@ -17,7 +17,8 @@ import {
   type Call, type InsertCall,
   type ActivityLog, type InsertActivityLog,
 } from "@shared/schema";
-import { eq, desc, and, sql } from "drizzle-orm";
+import { eq, desc, and, lt, notInArray, inArray, sql } from "drizzle-orm";
+import type { TaskWithMeta } from "@shared/routes";
 
 export type ThreadWithMeta = EmailThread & {
   unreadCount: number;
@@ -84,6 +85,9 @@ export interface IStorage {
   // Tasks
   getTasks(issueId?: number): Promise<Task[]>;
   getTask(id: number): Promise<Task | undefined>;
+  getTaskWithMeta(id: number): Promise<TaskWithMeta | undefined>;
+  getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string }): Promise<TaskWithMeta[]>;
+  getTasksByThread(threadId: number): Promise<TaskWithMeta[]>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: number, updates: Partial<InsertTask>): Promise<Task>;
   deleteTask(id: number): Promise<void>;
@@ -193,9 +197,56 @@ export class DatabaseStorage implements IStorage {
     if (issueId) return db.select().from(tasks).where(eq(tasks.issueId, issueId));
     return db.select().from(tasks);
   }
+
   async getTask(id: number) { const [r] = await db.select().from(tasks).where(eq(tasks.id, id)); return r; }
-  async createTask(t: InsertTask) { const [r] = await db.insert(tasks).values(t).returning(); return r; }
-  async updateTask(id: number, t: Partial<InsertTask>) { const [r] = await db.update(tasks).set(t).where(eq(tasks.id, id)).returning(); return r; }
+
+  private async enrichTasks(rows: Task[]): Promise<TaskWithMeta[]> {
+    if (!rows.length) return [];
+    const allUsers = await db.select().from(users);
+    const threadIds = [...new Set(rows.map(t => t.threadId).filter((id): id is number => id !== null))];
+    const threadRows = threadIds.length
+      ? await db.select().from(emailThreads).where(inArray(emailThreads.id, threadIds))
+      : [];
+    const threadMap = new Map(threadRows.map(t => [t.id, t.subject]));
+    const userMap = new Map(allUsers.map(u => [u.id, u]));
+    return rows.map(task => ({
+      ...task,
+      assigneeName: task.assignedUserId ? (userMap.get(task.assignedUserId)?.name ?? null) : null,
+      assigneeEmail: task.assignedUserId ? (userMap.get(task.assignedUserId)?.email ?? null) : null,
+      createdByName: task.createdByUserId ? (userMap.get(task.createdByUserId)?.name ?? null) : null,
+      threadSubject: task.threadId ? (threadMap.get(task.threadId) ?? null) : null,
+    }));
+  }
+
+  async getTaskWithMeta(id: number): Promise<TaskWithMeta | undefined> {
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, id));
+    if (!task) return undefined;
+    const [enriched] = await this.enrichTasks([task]);
+    return enriched;
+  }
+
+  async getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string }): Promise<TaskWithMeta[]> {
+    const conditions = [];
+    if (options.assignedUserId !== undefined) conditions.push(eq(tasks.assignedUserId, options.assignedUserId));
+    if (options.threadId !== undefined) conditions.push(eq(tasks.threadId, options.threadId));
+    if (options.status !== undefined) conditions.push(eq(tasks.status, options.status));
+    if (options.overdue) {
+      conditions.push(lt(tasks.dueDate, new Date()));
+      conditions.push(notInArray(tasks.status, ["Completed", "Cancelled"]));
+    }
+    const rows = conditions.length
+      ? await db.select().from(tasks).where(and(...conditions)).orderBy(desc(tasks.createdAt))
+      : await db.select().from(tasks).orderBy(desc(tasks.createdAt));
+    return this.enrichTasks(rows);
+  }
+
+  async getTasksByThread(threadId: number): Promise<TaskWithMeta[]> {
+    const rows = await db.select().from(tasks).where(eq(tasks.threadId, threadId)).orderBy(desc(tasks.createdAt));
+    return this.enrichTasks(rows);
+  }
+
+  async createTask(t: InsertTask) { const [r] = await db.insert(tasks).values({ ...t, updatedAt: new Date() }).returning(); return r; }
+  async updateTask(id: number, t: Partial<InsertTask>) { const [r] = await db.update(tasks).set({ ...t, updatedAt: new Date() }).where(eq(tasks.id, id)).returning(); return r; }
   async deleteTask(id: number) { await db.delete(tasks).where(eq(tasks.id, id)); }
 
   // Notes
