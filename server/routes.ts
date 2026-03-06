@@ -201,7 +201,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           // If ALLOWED_EMAIL_DOMAIN is set and domain matches, auto-create as staff
           if (config.allowedDomain && email.endsWith(`@${config.allowedDomain}`)) {
             user = await storage.createUser({ email, name: displayName, role: "staff" });
-            console.log(`[auth] Auto-created staff user ${email} (domain match)`);
           } else {
             // User not registered — deny access
             console.warn(`[auth] Login denied — not in users table: ${email}`);
