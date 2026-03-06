@@ -207,14 +207,8 @@ async function graphGet<T>(path: string, token: string): Promise<T> {
  *   - Mail.ReadShared delegated permission AND the connector account must have
  *     Full Access on the shared mailbox (granted by an Exchange/M365 admin).
  */
-export async function fetchMailboxMessages(
-  mailboxAddress: string,
-  options: { top?: number; skip?: number; token?: string } = {}
-): Promise<GraphMessage[]> {
-  const token = options.token ?? await getSyncToken();
-  const top = options.top ?? 50;
-  const skip = options.skip ?? 0;
-  const select = [
+function buildMessageSelect(): string {
+  return [
     "id",
     "conversationId",
     "subject",
@@ -226,9 +220,25 @@ export async function fetchMailboxMessages(
     "toRecipients",
     "body",
   ].join(",");
+}
+
+function buildDateFilter(since?: Date): string {
+  if (!since) return "";
+  return `&$filter=receivedDateTime ge ${since.toISOString()}`;
+}
+
+export async function fetchMailboxMessages(
+  mailboxAddress: string,
+  options: { top?: number; skip?: number; token?: string; since?: Date } = {}
+): Promise<GraphMessage[]> {
+  const token = options.token ?? await getSyncToken();
+  const top = options.top ?? 50;
+  const skip = options.skip ?? 0;
+  const select = buildMessageSelect();
+  const dateFilter = buildDateFilter(options.since);
 
   const encoded = encodeURIComponent(mailboxAddress);
-  const query = `?$top=${top}&$skip=${skip}&$select=${select}&$orderby=receivedDateTime desc`;
+  const query = `?$top=${top}&$skip=${skip}&$select=${select}&$orderby=receivedDateTime desc${dateFilter}`;
 
   // Try the inbox folder path first, then fall back to the flat messages endpoint.
   // Some shared-mailbox configurations (e.g. room/resource mailboxes) 403 on
@@ -259,6 +269,62 @@ export async function fetchMailboxMessages(
     );
   }
   throw new Error(base);
+}
+
+/**
+ * Fetch messages from the Sent Items folder.
+ */
+export async function fetchSentMessages(
+  mailboxAddress: string,
+  options: { top?: number; token?: string; since?: Date } = {}
+): Promise<GraphMessage[]> {
+  const token = options.token ?? await getSyncToken();
+  const top = options.top ?? 50;
+  const select = buildMessageSelect();
+  const dateFilter = buildDateFilter(options.since);
+  const encoded = encodeURIComponent(mailboxAddress);
+  const query = `?$top=${top}&$select=${select}&$orderby=receivedDateTime desc${dateFilter}`;
+  const path = `/users/${encoded}/mailFolders/sentitems/messages${query}`;
+  try {
+    const data = await graphGet<{ value: GraphMessage[] }>(path, token);
+    return data.value;
+  } catch (err: any) {
+    if (err.message?.includes("403") || err.message?.includes("404")) return [];
+    throw err;
+  }
+}
+
+export interface SendMailPayload {
+  subject: string;
+  body: { contentType: "HTML" | "Text"; content: string };
+  toRecipients: Array<{ emailAddress: { address: string; name?: string } }>;
+  ccRecipients?: Array<{ emailAddress: { address: string; name?: string } }>;
+  replyTo?: Array<{ emailAddress: { address: string; name?: string } }>;
+  conversationId?: string;
+}
+
+/**
+ * Send an email from a mailbox via Microsoft Graph.
+ * POST /users/{mailbox}/sendMail
+ */
+export async function sendMail(
+  mailboxAddress: string,
+  payload: SendMailPayload,
+  token?: string
+): Promise<void> {
+  const resolvedToken = token ?? await getSyncToken();
+  const path = `/users/${encodeURIComponent(mailboxAddress)}/sendMail`;
+  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${resolvedToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ message: payload, saveToSentItems: true }),
+  });
+  if (res.status === 202) return;
+  const err = await res.json().catch(() => ({ error: { message: "Send failed" } }));
+  throw new Error(err?.error?.message ?? `sendMail failed with status ${res.status}`);
 }
 
 /**

@@ -17,14 +17,27 @@ import {
   type Call, type InsertCall,
   type ActivityLog, type InsertActivityLog,
 } from "@shared/schema";
-import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull } from "drizzle-orm";
+import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull, ilike, gte, lte } from "drizzle-orm";
 import type { TaskWithMeta } from "@shared/routes";
 
 export type ThreadWithMeta = EmailThread & {
   unreadCount: number;
   latestSender: string | null;
   latestSenderName: string | null;
+  hasAttachments: boolean;
 };
+
+export interface ThreadFilters {
+  mailboxId?: number;
+  assignedUserId?: number | null;
+  status?: string;
+  unreadOnly?: boolean;
+  hasAttachments?: boolean;
+  contactId?: number;
+  search?: string;
+  dateFrom?: Date;
+  dateTo?: Date;
+}
 
 export type MessageWithAttachments = Message & {
   attachments: Attachment[];
@@ -46,9 +59,10 @@ export interface IStorage {
   updateMailbox(id: number, updates: Partial<InsertMailbox>): Promise<Mailbox>;
   deleteMailbox(id: number): Promise<void>;
   countThreadsByMailbox(mailboxId: number): Promise<number>;
+  updateMailboxLastSynced(id: number, at: Date): Promise<void>;
 
   // Email Threads
-  getThreads(mailboxId?: number): Promise<ThreadWithMeta[]>;
+  getThreads(filters?: ThreadFilters): Promise<ThreadWithMeta[]>;
   getThread(id: number): Promise<EmailThread | undefined>;
   createThread(thread: InsertEmailThread): Promise<EmailThread>;
   updateThread(id: number, updates: Partial<InsertEmailThread>): Promise<EmailThread>;
@@ -142,22 +156,45 @@ export class DatabaseStorage implements IStorage {
     const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(emailThreads).where(eq(emailThreads.mailboxId, mailboxId));
     return row?.count ?? 0;
   }
+  async updateMailboxLastSynced(id: number, at: Date) {
+    await db.update(mailboxes).set({ lastSyncedAt: at }).where(eq(mailboxes.id, id));
+  }
 
   // Email Threads — enriched with unread count + latest sender
-  async getThreads(mailboxId?: number): Promise<ThreadWithMeta[]> {
-    const rows = mailboxId
-      ? await db.select().from(emailThreads).where(eq(emailThreads.mailboxId, mailboxId)).orderBy(desc(emailThreads.lastMessageAt))
+  async getThreads(filters: ThreadFilters = {}): Promise<ThreadWithMeta[]> {
+    const conditions: any[] = [];
+    if (filters.mailboxId) conditions.push(eq(emailThreads.mailboxId, filters.mailboxId));
+    if (filters.assignedUserId !== undefined) {
+      conditions.push(filters.assignedUserId === null
+        ? isNull(emailThreads.assignedUserId)
+        : eq(emailThreads.assignedUserId, filters.assignedUserId));
+    }
+    if (filters.status) conditions.push(eq(emailThreads.status, filters.status));
+    if (filters.contactId) conditions.push(eq(emailThreads.contactId, filters.contactId));
+    if (filters.dateFrom) conditions.push(gte(emailThreads.lastMessageAt, filters.dateFrom));
+    if (filters.dateTo) conditions.push(lte(emailThreads.lastMessageAt, filters.dateTo));
+    if (filters.search) {
+      conditions.push(ilike(emailThreads.subject, `%${filters.search}%`));
+    }
+
+    const rows = conditions.length > 0
+      ? await db.select().from(emailThreads).where(and(...conditions)).orderBy(desc(emailThreads.lastMessageAt))
       : await db.select().from(emailThreads).orderBy(desc(emailThreads.lastMessageAt));
 
-    // Enrich each thread with unread count and latest sender
     const enriched: ThreadWithMeta[] = [];
     for (const t of rows) {
       const msgs = await db.select().from(messages).where(eq(messages.threadId, t.id)).orderBy(desc(messages.receivedAt));
       const unreadCount = msgs.filter(m => !m.isRead).length;
-      const latest = msgs[0];
+      const hasAtt = msgs.some(m => m.hasAttachments);
+      const latest = msgs.find(m => m.direction !== "outbound") ?? msgs[0];
+
+      if (filters.unreadOnly && unreadCount === 0) continue;
+      if (filters.hasAttachments && !hasAtt) continue;
+
       enriched.push({
         ...t,
         unreadCount,
+        hasAttachments: hasAtt,
         latestSender: latest?.senderEmail ?? null,
         latestSenderName: latest?.senderName ?? null,
       });

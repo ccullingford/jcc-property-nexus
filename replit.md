@@ -20,9 +20,10 @@ server/
   storage.ts      # DatabaseStorage class (all DB operations)
   routes.ts       # Route handlers — includes OAuth, RBAC middleware
   services/
-    graphService.ts           # Microsoft Graph (mailbox sync via Replit Outlook connector); fetchMailboxMessages/fetchMessageAttachments accept optional token param
+    graphService.ts           # Microsoft Graph: fetchMailboxMessages (with since: Date filter), fetchSentMessages, sendMail, fetchMessageAttachments; optional token param
     microsoftAuthService.ts   # PKCE helpers, token exchange, refreshAccessToken(), Graph user profile; scope includes Mail.Read
-    syncService.ts            # Thread/message sync orchestration; resolves app-only vs delegated token based on mailbox.syncMode
+    syncService.ts            # Thread/message sync: respects syncHistoryDays window, fetches sentitems if includeSentMail, marks direction=outbound, auto-links contacts, updates lastSyncedAt
+    mailboxSyncScheduler.ts   # Background auto-sync scheduler: ticks every 60s, respects autoSyncEnabled + autoSyncIntervalMinutes per mailbox, prevents concurrent syncs
     threadWorkflowService.ts  # Thread workflow: claim, assign, unassign, status change, notes, activity
     taskService.ts            # Task creation, update, assignment, status changes with activity logging
     contactIdentityService.ts # Email normalization, phone normalization, findContactByEmail/Phone
@@ -41,7 +42,7 @@ client/src/
   pages/
     login.tsx     # Microsoft OAuth login page
     admin.tsx     # Mailbox management
-    inbox.tsx     # Three-pane inbox: thread list | message view | thread sidebar
+    inbox.tsx     # Three-pane inbox: thread list (search + filter panel) | message view (reply/compose, unknown contact banner) | thread sidebar; auto-refreshes every 60s
     tasks.tsx     # Task dashboard with My/Team/Overdue tabs + Create/Edit Task dialogs
     contacts.tsx  # Two-panel contacts: searchable list | detail with timeline
     issues.tsx    # Two-panel issues: list with filters | detail with tabs (Overview/Threads/Tasks/Notes/Timeline)
@@ -54,9 +55,9 @@ client/src/
 
 ## Database Schema (all tables in Postgres)
 - **users** — id, name, email, role (admin|manager|staff), ms_access_token, ms_refresh_token, ms_token_expires_at, created_at
-- **mailboxes** — id, name, type (shared|personal), microsoft_mailbox_id, is_default, sync_mode (application|delegated), owner_user_id (FK→users), created_at
+- **mailboxes** — id, name, type (shared|personal), microsoft_mailbox_id, is_default, sync_mode (application|delegated), owner_user_id (FK→users), sync_history_days (default 30), include_sent_mail (default true), auto_sync_enabled (default true), auto_sync_interval_minutes (default 5), last_synced_at, created_at
 - **email_threads** — id, mailbox_id, subject, microsoft_thread_id, assigned_user_id, contact_id, property_id, status, last_message_at, updated_at, created_at
-- **messages** — id, thread_id, microsoft_message_id, sender_email, sender_name, recipients[], subject, body, body_html, body_preview, received_at, has_attachments, is_read, updated_at
+- **messages** — id, thread_id, microsoft_message_id, sender_email, sender_name, recipients[], subject, body, body_html, body_preview, received_at, has_attachments, is_read, direction (inbound|outbound, default inbound), updated_at
 - **attachments** — id, message_id, microsoft_attachment_id, name, content_type, size_bytes
 - **contacts** — id, display_name, contact_type, primary_email, primary_phone, notes, updated_at, created_at; types = Owner|Tenant|Vendor|Board|Realtor|Attorney|Other
 - **contact_phones** — id, contact_id, phone_number (normalized E.164), label, is_primary, created_at
@@ -128,12 +129,14 @@ Roles: admin > manager > staff. `requireRole` middleware enforces per-route.
 - `GET /api/threads/:id/activity` — activity log for a thread
 - `GET/POST /api/calls` — call log
 - `GET /api/calls/pop?phone=+1...` — RingEX call pop lookup
-- `GET /api/threads` — email threads (filtered by mailbox)
+- `GET /api/threads` — email threads; query params: mailboxId, search, status, unreadOnly, hasAttachments, assignedUserId
 - `GET /api/threads/:id/messages` — messages in a thread
+- `POST /api/threads/:id/reply` — send reply (body: { body, replyAll?, to? }); stores outbound message
 - `POST /api/threads/:id/claim` — claim unassigned thread
 - `POST /api/threads/:id/assign` — assign thread (body: { userId })
 - `POST /api/threads/:id/unassign` — remove assignee
 - `PATCH /api/threads/:id/status` — update thread status
+- `GET /api/contacts/lookup?email=` — find contact by email address, returns 404 if not found
 
 ## Microsoft Graph Configuration
 Required environment secrets for OAuth and mailbox sync:
@@ -179,3 +182,4 @@ The Azure AD app needs:
 - **Chunk 4**: Task System — app-native tasks in Postgres, task dashboard (My/Team/Overdue tabs), create/edit/delete tasks, task-thread linking, thread sidebar task section, activity logging for task events
 - **Chunk 5**: Contacts and Identity Layer — contacts/contact_emails/contact_phones/thread_contacts tables, identity normalization services, search by name/email/phone, contact detail page with timeline, thread-sidebar contact section with link/unlink, CONTACT_TYPES enum
 - **Chunk 6**: Issues / Cases Layer — issue_threads linking table, createdByUserId + updatedAt on issues, four backend services (issueService, issueLinkService, issueTimelineService, issueQueryService), 12 new API endpoints, full Issues page with two-panel layout (list + detail with 5 tabs), Issue section in thread sidebar (create/link dialogs), issue title badge in task rows
+- **Chunk 7**: Mailbox Sync & Inbox Usability — mailboxes extended (syncHistoryDays, includeSentMail, autoSyncEnabled, autoSyncIntervalMinutes, lastSyncedAt), messages direction field (inbound/outbound), graphService sentitems + sendMail, syncService sync window + sent mail + auto contact linking, mailboxSyncScheduler background job, GET /api/threads with full filters (search/status/unread/hasAttachments/assignedUserId), POST /api/threads/:id/reply, GET /api/contacts/lookup, inbox search bar + filter panel + auto-refresh, reply/compose UI, unknown contact prompt with quick-create dialog, admin UI sync settings

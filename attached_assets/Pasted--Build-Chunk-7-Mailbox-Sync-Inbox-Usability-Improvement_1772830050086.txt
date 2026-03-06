@@ -1,0 +1,338 @@
+# Build Chunk 7 — Mailbox Sync & Inbox Usability Improvements
+
+Chunks 1–6 of the Property Management Operations Platform are already implemented.
+Do NOT rebuild or refactor earlier chunks unless necessary to support the features below.
+
+Existing architecture:
+
+Frontend: React
+Backend: Node.js
+Database: PostgreSQL
+Email: Microsoft Graph
+Authentication: Microsoft Entra ID
+
+This chunk focuses on **mailbox usability, synchronization improvements, and inbox experience**.
+
+---
+
+# Goals of Chunk 7
+
+Improve the shared inbox so it behaves like a **professional shared mailbox platform**.
+
+Key improvements:
+
+* Configurable mailbox sync window (in days)
+* Per-mailbox sync settings
+* Import sent mail
+* Proper thread reconstruction using inbox + sent messages
+* Automatic mailbox sync scheduler
+* Page auto-refresh
+* Inbox filtering and searching
+* Cleaner reply / reply-all / compose experience
+* Automatic contact linking during sync
+* Prompt to create contact when sender not recognized
+
+This chunk does NOT include:
+
+* association/unit models (Chunk 9)
+* phone integration (Chunk 10)
+* AI features (Chunk 11)
+
+---
+
+# Part 1 — Mailbox Sync Configuration
+
+Add configurable sync settings per mailbox.
+
+## Database changes
+
+Add fields to the existing `mailboxes` table:
+
+sync_history_days (integer default 30)
+include_sent_mail (boolean default true)
+auto_sync_enabled (boolean default true)
+auto_sync_interval_minutes (integer default 5)
+last_synced_at (timestamp nullable)
+
+Purpose:
+
+sync_history_days
+Controls how far back the initial mailbox sync goes.
+
+Example:
+30 = sync last 30 days of mail.
+
+include_sent_mail
+Determines whether Sent Items are synced.
+
+auto_sync_enabled
+Allows scheduled sync.
+
+auto_sync_interval_minutes
+Controls background sync frequency.
+
+---
+
+# Part 2 — Mailbox Sync Improvements
+
+Improve the existing Graph sync service.
+
+## Requirements
+
+Sync should pull messages from:
+
+Inbox
+Sent Items (if enabled)
+
+Endpoints:
+
+/users/{mailbox}/mailFolders/inbox/messages
+/users/{mailbox}/mailFolders/sentitems/messages
+
+Thread reconstruction must combine both.
+
+Important:
+
+Replies that exist in Sent Items must appear in the same conversation view as incoming mail.
+
+---
+
+# Part 3 — Sync Window (Days)
+
+Mailbox sync must respect:
+
+sync_history_days
+
+Example:
+
+If sync_history_days = 60
+only pull messages newer than:
+
+today - 60 days
+
+Implementation:
+
+receivedDateTime >= calculatedDate
+
+Apply this to both inbox and sent mail queries.
+
+---
+
+# Part 4 — Automatic Sync Scheduler
+
+Add a background sync system.
+
+Backend service:
+
+mailboxSyncScheduler
+
+Behavior:
+
+Every auto_sync_interval_minutes:
+
+Loop through mailboxes where:
+
+auto_sync_enabled = true
+
+Run sync job.
+
+Requirements:
+
+* prevent concurrent sync for the same mailbox
+* log sync results
+* update last_synced_at
+
+---
+
+# Part 5 — Automatic Contact Linking
+
+When new messages are synced:
+
+Attempt to match sender/recipient emails to existing contacts.
+
+Steps:
+
+1. Normalize email (lowercase)
+2. Search contacts.email table
+3. If match found:
+   attach contact to thread
+
+If multiple contacts match, prefer primary email.
+
+---
+
+# Part 6 — Prompt to Create Contact
+
+If sender email has no matching contact:
+
+Frontend should show:
+
+Unknown Contact
+
+Provide buttons:
+
+Create Contact
+Search Existing Contact
+Ignore
+
+Create Contact should prefill:
+
+name from sender display name
+email from sender address
+
+---
+
+# Part 7 — Inbox Filtering & Search
+
+Add filtering and search on inbox list.
+
+## Filters
+
+mailbox
+assigned user
+issue status
+unread
+has attachments
+contact
+date range
+
+## Search
+
+Search threads by:
+
+subject
+contact name
+email address
+message preview
+
+Implement using backend query endpoints.
+
+---
+
+# Part 8 — Page Auto Refresh
+
+Inbox and thread views should auto refresh.
+
+Approach:
+
+Polling every 30–60 seconds.
+
+Implementation options:
+
+React polling
+SWR / React Query
+manual interval refresh
+
+Requirements:
+
+* refresh thread list
+* refresh message view
+* preserve scroll state when possible
+
+Also add:
+
+Manual "Refresh Inbox" button.
+
+---
+
+# Part 9 — Improved Reply / Compose UX
+
+Refactor the email compose experience.
+
+Must support:
+
+Reply
+Reply All
+New Message
+
+Features:
+
+clear recipient chips
+subject editing
+attachment upload
+thread quote preview
+send confirmation
+
+Ensure sending occurs through:
+
+Microsoft Graph
+
+POST /users/{mailbox}/sendMail
+
+Requirements:
+
+* send from correct mailbox
+* support reply threading
+* show sending state
+* show error feedback
+
+---
+
+# Part 10 — Sent Mail Storage
+
+When messages are sent from the system:
+
+Store them locally as well.
+
+Purpose:
+
+maintain complete conversation history.
+
+Fields should include:
+
+direction = outgoing
+sent_at
+graph_message_id
+
+These messages must appear in conversation threads.
+
+---
+
+# Part 11 — UI Improvements
+
+Inbox page should include:
+
+filters panel
+search bar
+mailbox selector
+refresh button
+
+Thread view should include:
+
+contact panel
+issue link
+reply / reply all buttons
+attachments
+message timeline
+
+---
+
+# Definition of Done
+
+Chunk 7 is complete when:
+
+Users can configure mailbox sync window (days)
+Sent mail appears in threads
+Mailbox sync runs automatically
+Inbox auto refresh works
+Threads link to contacts automatically
+Unknown senders trigger contact creation prompt
+Inbox filtering and search work
+Reply / reply all / compose UI is clean and usable
+
+All changes must persist in PostgreSQL and integrate with existing thread, contact, and issue systems.
+
+---
+
+# Deliverables
+
+* Postgres migration for mailbox settings
+* Improved mailbox sync service
+* Auto-sync scheduler
+* Contact linking during sync
+* Contact creation prompt
+* Inbox filtering APIs
+* Auto refresh UI
+* Improved email compose interface
+* Sent mail storage integration
+* Explanation of sync architecture

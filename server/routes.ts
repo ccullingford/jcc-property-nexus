@@ -27,7 +27,9 @@ import { getIssueTimeline } from "./services/issueTimelineService";
 import { getNotesByIssueWithUsers } from "./services/threadWorkflowService";
 import expressSession from "express-session";
 import { syncMailbox } from "./services/syncService";
-import { isGraphConfigured } from "./services/graphService";
+import { isGraphConfigured, sendMail } from "./services/graphService";
+import { findContactByEmail } from "./services/contactIdentityService";
+import type { ThreadFilters } from "./storage";
 import {
   buildAuthorizationUrl,
   exchangeCodeForToken,
@@ -378,8 +380,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ─── Email Threads ────────────────────────────────────────────────────────
   app.get(api.threads.list.path, async (req, res) => {
-    const mailboxId = req.query.mailboxId ? Number(req.query.mailboxId) : undefined;
-    res.json(await storage.getThreads(mailboxId));
+    const q = req.query;
+    const filters: ThreadFilters = {};
+    if (q.mailboxId) filters.mailboxId = Number(q.mailboxId);
+    if (q.assignedUserId) filters.assignedUserId = q.assignedUserId === "unassigned" ? null : Number(q.assignedUserId);
+    if (q.status && typeof q.status === "string") filters.status = q.status;
+    if (q.unreadOnly === "true") filters.unreadOnly = true;
+    if (q.hasAttachments === "true") filters.hasAttachments = true;
+    if (q.contactId) filters.contactId = Number(q.contactId);
+    if (q.search && typeof q.search === "string") filters.search = q.search;
+    if (q.dateFrom) filters.dateFrom = new Date(q.dateFrom as string);
+    if (q.dateTo) filters.dateTo = new Date(q.dateTo as string);
+    res.json(await storage.getThreads(filters));
   });
 
   app.get(api.threads.get.path, async (req, res) => {
@@ -404,6 +416,74 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const thread = await storage.getThread(threadId);
     if (!thread) return res.status(404).json({ message: "Thread not found" });
     res.json(await storage.getMessagesByThread(threadId));
+  });
+
+  // ─── Reply to Thread ──────────────────────────────────────────────────────
+  app.post("/api/threads/:id/reply", requireAuth, async (req, res) => {
+    try {
+      const threadId = Number(req.params.id);
+      const { body, replyAll, to } = req.body as { body: string; replyAll?: boolean; to?: string[] };
+      if (!body?.trim()) return res.status(400).json({ message: "Reply body is required" });
+
+      const thread = await storage.getThread(threadId);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+
+      const mailbox = await storage.getMailbox(thread.mailboxId);
+      if (!mailbox?.microsoftMailboxId) return res.status(400).json({ message: "Mailbox not configured" });
+
+      const allMessages = await storage.getMessagesByThread(threadId);
+      const firstInbound = allMessages.find(m => (m as any).direction !== "outbound") ?? allMessages[0];
+
+      const recipients: Array<{ emailAddress: { address: string; name?: string } }> = [];
+      if (to && to.length > 0) {
+        to.forEach(addr => recipients.push({ emailAddress: { address: addr } }));
+      } else if (firstInbound) {
+        recipients.push({ emailAddress: { address: firstInbound.senderEmail, name: firstInbound.senderName ?? undefined } });
+        if (replyAll && firstInbound.recipients) {
+          firstInbound.recipients.forEach(r => {
+            if (r !== mailbox.microsoftMailboxId) recipients.push({ emailAddress: { address: r } });
+          });
+        }
+      }
+
+      if (recipients.length === 0) return res.status(400).json({ message: "No recipients found" });
+
+      const subject = thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`;
+
+      await sendMail(mailbox.microsoftMailboxId, {
+        subject,
+        body: { contentType: "HTML", content: body },
+        toRecipients: recipients,
+        conversationId: thread.microsoftThreadId ?? undefined,
+      });
+
+      // Store outbound message in DB
+      const now = new Date();
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const savedMsg = await storage.createMessage({
+        threadId,
+        microsoftMessageId: null,
+        senderEmail: mailbox.microsoftMailboxId,
+        senderName: user?.name ?? "Me",
+        recipients: recipients.map(r => r.emailAddress.address),
+        subject,
+        bodyPreview: body.replace(/<[^>]+>/g, "").slice(0, 200),
+        bodyText: null,
+        bodyHtml: body,
+        receivedAt: now,
+        hasAttachments: false,
+        isRead: true,
+        direction: "outbound",
+        updatedAt: now,
+      });
+
+      await storage.updateThread(threadId, { lastMessageAt: now, updatedAt: now });
+
+      res.status(201).json(savedMsg);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Reply failed" });
+    }
   });
 
   // ─── Thread Workflow Actions ──────────────────────────────────────────────
@@ -478,6 +558,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ─── Contacts ─────────────────────────────────────────────────────────────
+  app.get("/api/contacts/lookup", async (req, res) => {
+    const email = typeof req.query.email === "string" ? req.query.email.trim() : "";
+    if (!email) return res.status(400).json({ message: "email param required" });
+    const contact = await findContactByEmail(email);
+    if (!contact) return res.status(404).json({ message: "No contact found" });
+    res.json(contact);
+  });
+
   app.get(api.contacts.list.path, async (req, res) => {
     try {
       const q = typeof req.query.q === "string" ? req.query.q : undefined;

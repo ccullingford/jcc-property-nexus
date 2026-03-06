@@ -31,6 +31,11 @@ export const mailboxes = pgTable("mailboxes", {
   ownerUserId: integer("owner_user_id").references(() => users.id),
   microsoftMailboxId: text("microsoft_mailbox_id"),
   isDefault: boolean("is_default").default(false).notNull(),
+  syncHistoryDays: integer("sync_history_days").default(30).notNull(),
+  includeSentMail: boolean("include_sent_mail").default(true).notNull(),
+  autoSyncEnabled: boolean("auto_sync_enabled").default(true).notNull(),
+  autoSyncIntervalMinutes: integer("auto_sync_interval_minutes").default(5).notNull(),
+  lastSyncedAt: timestamp("last_synced_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -140,6 +145,7 @@ export const messages = pgTable("messages", {
   receivedAt: timestamp("received_at").defaultNow().notNull(),
   hasAttachments: boolean("has_attachments").default(false).notNull(),
   isRead: boolean("is_read").default(false).notNull(),
+  direction: text("direction").notNull().default("inbound"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
