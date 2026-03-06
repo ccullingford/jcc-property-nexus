@@ -62,10 +62,10 @@ export function Login() {
             <div className="flex items-center justify-center mb-4">
               <span className="text-6xl font-bold tracking-widest uppercase" style={{ color: "#414257" }}>NEXUS</span>
             </div>
-            <h2 className="text-3xl font-display font-bold leading-9 tracking-tight" style={{ color: "#414257" }}>
+            <h2 className="text-3xl font-display font-bold leading-9 tracking-tight text-center" style={{ color: "#414257" }}>
               Welcome back
             </h2>
-            <p className="mt-2 text-sm" style={{ color: "#414257" }}>
+            <p className="mt-2 text-sm text-center" style={{ color: "#414257" }}>
               Sign in with your organization Microsoft account to continue.
             </p>
           </div>
