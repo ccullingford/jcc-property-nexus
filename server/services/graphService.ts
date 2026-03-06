@@ -163,10 +163,12 @@ export async function getSyncToken(): Promise<string> {
   } = process.env;
 
   if (MICROSOFT_TENANT_ID && MICROSOFT_CLIENT_ID && MICROSOFT_CLIENT_SECRET) {
+    console.log("[getSyncToken] Using app-only (client_credentials) token");
     return getAppOnlyToken();
   }
 
   // No app-only credentials — try the connector as last resort
+  console.log("[getSyncToken] App-only credentials not configured, trying Outlook connector");
   const connectorToken = await getConnectorToken();
   if (connectorToken) return connectorToken;
 
@@ -248,14 +250,12 @@ export async function fetchMailboxMessages(
     }
   }
 
-  // Both paths failed — surface a clear, actionable message
+  // Both paths failed — surface the original Graph error detail so we can diagnose
   const base = lastErr?.message ?? "Unknown Graph error";
   if (base.includes("403")) {
     throw new Error(
-      `Access denied to mailbox "${mailboxAddress}". ` +
-      `To fix this, choose one option: ` +
-      `(A) App-only: In Azure AD, add the Mail.Read *Application* permission to your app registration and have a Global Admin grant consent. ` +
-      `(B) Connector: In Microsoft 365 Admin, grant the Outlook connector account Full Access on this shared mailbox, then reconnect the integration.`
+      `Access denied (403) to mailbox "${mailboxAddress}". ` +
+      `Microsoft Graph said: ${base}`
     );
   }
   throw new Error(base);
