@@ -138,13 +138,42 @@ async function getAppOnlyToken(): Promise<string> {
 }
 
 /**
- * Get a valid access token.
- * Tries Replit Outlook connector first, then app-only credentials.
+ * Get a token suitable for delegated Graph operations (e.g. send-as).
+ * Tries Replit Outlook connector first, then falls back to app-only.
  */
 export async function getAccessToken(): Promise<string> {
   const connectorToken = await getConnectorToken();
   if (connectorToken) return connectorToken;
   return getAppOnlyToken();
+}
+
+/**
+ * Get a token for server-side mailbox sync.
+ * Prefers app-only (client credentials) because:
+ *   - Shared-mailbox access requires Mail.Read *application* permission.
+ *   - Delegated / connector tokens are scoped to the signed-in user and
+ *     typically don't have access to other mailboxes.
+ * Falls back to the connector token only when no app credentials are set.
+ */
+export async function getSyncToken(): Promise<string> {
+  const {
+    MICROSOFT_TENANT_ID,
+    MICROSOFT_CLIENT_ID,
+    MICROSOFT_CLIENT_SECRET,
+  } = process.env;
+
+  if (MICROSOFT_TENANT_ID && MICROSOFT_CLIENT_ID && MICROSOFT_CLIENT_SECRET) {
+    return getAppOnlyToken();
+  }
+
+  // No app-only credentials — try the connector as last resort
+  const connectorToken = await getConnectorToken();
+  if (connectorToken) return connectorToken;
+
+  throw new Error(
+    "No Graph credentials available for mailbox sync. " +
+    "Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, and MICROSOFT_CLIENT_SECRET."
+  );
 }
 
 // ── Graph HTTP helpers ───────────────────────────────────────────────────────
@@ -180,7 +209,7 @@ export async function fetchMailboxMessages(
   mailboxAddress: string,
   options: { top?: number; skip?: number } = {}
 ): Promise<GraphMessage[]> {
-  const token = await getAccessToken();
+  const token = await getSyncToken();
   const top = options.top ?? 50;
   const skip = options.skip ?? 0;
   const select = [
@@ -215,7 +244,7 @@ export async function fetchMailboxMessages(
     } catch (err: any) {
       lastErr = err;
       // Only fall through on 403/404 — other errors (network, 500) should surface immediately
-      if (!err.message.includes("403") && !err.message.includes("404")) throw err;
+      if (!err.message?.includes("403") && !err.message?.includes("404")) throw err;
     }
   }
 
@@ -239,7 +268,7 @@ export async function fetchMessageAttachments(
   mailboxAddress: string,
   messageId: string
 ): Promise<GraphAttachment[]> {
-  const token = await getAccessToken();
+  const token = await getSyncToken();
   const path =
     `/users/${encodeURIComponent(mailboxAddress)}/messages/${messageId}/attachments` +
     `?$select=id,name,contentType,size`;
@@ -252,7 +281,7 @@ export async function fetchMessageAttachments(
  */
 export async function testMailboxAccess(mailboxAddress: string): Promise<boolean> {
   try {
-    const token = await getAccessToken();
+    const token = await getSyncToken();
     await graphGet(`/users/${encodeURIComponent(mailboxAddress)}`, token);
     return true;
   } catch {
