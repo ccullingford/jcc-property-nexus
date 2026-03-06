@@ -18,6 +18,7 @@ import {
   Reply, ReplyAll, Send, UserPlus, UserX
 } from "lucide-react";
 import type { Mailbox, EmailThread, Message, Attachment, User, Contact } from "@shared/schema";
+import type { ContactWithDetails } from "@shared/routes";
 import { ThreadSidebar } from "@/components/thread-sidebar";
 
 // ─── Type extensions ───────────────────────────────────────────────────────────
@@ -105,6 +106,104 @@ function GraphStatusBanner() {
   );
 }
 
+// ─── Quick Link Contact Dialog ────────────────────────────────────────────────
+function QuickLinkContactDialog({
+  open,
+  onClose,
+  threadId,
+  onLinked,
+}: {
+  open: boolean;
+  onClose: () => void;
+  threadId: number;
+  onLinked: () => void;
+}) {
+  const { toast } = useToast();
+  const [query, setQuery] = useState("");
+
+  const { data: results, isLoading } = useQuery<ContactWithDetails[]>({
+    queryKey: ["/api/contacts", { q: query }],
+    queryFn: async () => {
+      const url = query.trim()
+        ? `/api/contacts?q=${encodeURIComponent(query.trim())}`
+        : "/api/contacts";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const linkMutation = useMutation({
+    mutationFn: (contactId: number) =>
+      apiRequest("POST", `/api/threads/${threadId}/link-contact`, { contactId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "contacts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
+      toast({ title: "Contact linked to thread" });
+      onLinked();
+      onClose();
+    },
+    onError: (e: Error) => toast({ title: "Failed to link contact", description: e.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); setQuery(""); } }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader><DialogTitle>Link Existing Contact</DialogTitle></DialogHeader>
+        <div className="space-y-3 py-1">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search by name, email, phone…"
+              className="pl-8"
+              data-testid="input-quick-link-search"
+              autoFocus
+            />
+          </div>
+          <div className="max-h-60 overflow-y-auto space-y-0.5" data-testid="quick-link-results">
+            {isLoading ? (
+              <div className="space-y-2 py-2">
+                <Skeleton className="h-10 w-full" />
+                <Skeleton className="h-10 w-full" />
+              </div>
+            ) : !results || results.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-6">
+                {query ? "No contacts found." : "Type to search contacts."}
+              </p>
+            ) : (
+              results.map(c => (
+                <button
+                  key={c.id}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-muted/70 text-left transition-colors"
+                  onClick={() => linkMutation.mutate(c.id)}
+                  disabled={linkMutation.isPending}
+                  data-testid={`quick-link-contact-${c.id}`}
+                >
+                  <div className="h-7 w-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                    <span className="text-xs font-semibold text-primary">{c.displayName?.[0]?.toUpperCase()}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{c.displayName}</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {c.contactType} · {c.primaryEmail ?? c.emails[0]?.email ?? c.primaryPhone ?? ""}
+                    </p>
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ─── Unknown contact banner ───────────────────────────────────────────────────
 function UnknownContactBanner({
   thread,
@@ -116,6 +215,7 @@ function UnknownContactBanner({
   onIgnore: () => void;
 }) {
   const [createOpen, setCreateOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
   const { toast } = useToast();
 
   const email = latestInboundMessage?.senderEmail ?? "";
@@ -153,6 +253,10 @@ function UnknownContactBanner({
             <UserPlus className="h-3 w-3" />
             Create
           </Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs gap-1" onClick={() => setLinkOpen(true)} data-testid="button-link-existing-contact-from-thread">
+            <Search className="h-3 w-3" />
+            Link Existing
+          </Button>
           <Button size="sm" variant="ghost" className="h-7 text-xs text-muted-foreground" onClick={onIgnore} data-testid="button-ignore-unknown-contact">
             Ignore
           </Button>
@@ -170,6 +274,16 @@ function UnknownContactBanner({
           queryClient.invalidateQueries({ queryKey: ["/api/contacts/lookup", email] });
           queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
           toast({ title: "Contact created and linked to thread" });
+        }}
+      />
+
+      <QuickLinkContactDialog
+        open={linkOpen}
+        onClose={() => setLinkOpen(false)}
+        threadId={thread.id}
+        onLinked={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/contacts/lookup", email] });
+          queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
         }}
       />
     </>

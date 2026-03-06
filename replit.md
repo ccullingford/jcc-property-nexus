@@ -44,7 +44,7 @@ client/src/
   pages/
     login.tsx     # Microsoft OAuth login page
     admin.tsx     # Mailbox management
-    inbox.tsx     # Three-pane inbox: thread list (search + filter panel) | message view (reply/compose, unknown contact banner) | thread sidebar; auto-refreshes every 60s
+    inbox.tsx     # Three-pane inbox: thread list (search + filter panel) | message view (reply/compose, unknown contact banner with Create/Link Existing/Ignore) | thread sidebar; auto-refreshes every 60s
     tasks.tsx     # Task dashboard with My/Team/Overdue tabs + Create/Edit Task dialogs
     contacts.tsx  # Two-panel contacts: filter bar (type, has threads, has issues) + Import (CSV wizard) + Duplicates review | detail with emails/phones/linked issues/tasks/timeline
     issues.tsx    # Two-panel issues: list with filters | detail with tabs (Overview/Threads/Tasks/Notes/Timeline)
