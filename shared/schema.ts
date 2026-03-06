@@ -200,15 +200,31 @@ export const issues = pgTable("issues", {
   propertyId: integer("property_id").references(() => properties.id),
   unitId: integer("unit_id").references(() => units.id),
   assignedUserId: integer("assigned_user_id").references(() => users.id),
+  createdByUserId: integer("created_by_user_id").references(() => users.id),
   status: text("status").notNull().default("Open"),
-  priority: text("priority").notNull().default("Medium"),
+  priority: text("priority").notNull().default("Normal"),
   closedAt: timestamp("closed_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
-export const insertIssueSchema = createInsertSchema(issues).omit({ id: true, createdAt: true, closedAt: true });
+export const insertIssueSchema = createInsertSchema(issues).omit({ id: true, createdAt: true, updatedAt: true, closedAt: true });
 export type Issue = typeof issues.$inferSelect;
 export type InsertIssue = z.infer<typeof insertIssueSchema>;
+
+// ============================================================
+// ISSUE THREADS (explicit thread↔issue linking)
+// ============================================================
+export const issueThreads = pgTable("issue_threads", {
+  id: serial("id").primaryKey(),
+  issueId: integer("issue_id").notNull().references(() => issues.id),
+  threadId: integer("thread_id").notNull().references(() => emailThreads.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertIssueThreadSchema = createInsertSchema(issueThreads).omit({ id: true, createdAt: true });
+export type IssueThread = typeof issueThreads.$inferSelect;
+export type InsertIssueThread = z.infer<typeof insertIssueThreadSchema>;
 
 // ============================================================
 // TASKS

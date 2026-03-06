@@ -15,11 +15,11 @@ import {
   UserCheck, UserX, User, MessageSquare, Activity,
   Send, ChevronRight, CheckSquare, Plus, Circle,
   CheckCircle2, XCircle, Clock, AlertTriangle, Calendar,
-  Users, Search, Link2, Unlink, X,
+  Users, Search, Link2, Unlink, X, AlertCircle,
 } from "lucide-react";
 import type { User as UserType } from "@shared/schema";
-import type { NoteWithUser, ActivityWithUser, TaskWithMeta, ContactWithDetails, ThreadContactWithContact } from "@shared/routes";
-import { TASK_STATUSES, TASK_PRIORITIES } from "@shared/routes";
+import type { NoteWithUser, ActivityWithUser, TaskWithMeta, ContactWithDetails, ThreadContactWithContact, IssueWithDetails } from "@shared/routes";
+import { TASK_STATUSES, TASK_PRIORITIES, ISSUE_PRIORITIES } from "@shared/routes";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -300,6 +300,12 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
   const [noteBody, setNoteBody] = useState("");
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
   const [linkContactOpen, setLinkContactOpen] = useState(false);
+  const [showCreateIssue, setShowCreateIssue] = useState(false);
+  const [showLinkIssue, setShowLinkIssue] = useState(false);
+  const [issueTitle, setIssueTitle] = useState("");
+  const [issueDesc, setIssueDesc] = useState("");
+  const [issuePriority, setIssuePriority] = useState("Normal");
+  const [issueSearch, setIssueSearch] = useState("");
 
   const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/users"] });
 
@@ -401,6 +407,56 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
     onError: (e: Error) => toast({ title: "Failed to unlink contact", description: e.message, variant: "destructive" }),
   });
 
+  const { data: threadIssues, isLoading: loadingIssues } = useQuery<IssueWithDetails[]>({
+    queryKey: ["/api/threads", threadId, "issues"],
+    queryFn: async () => {
+      const res = await fetch(`/api/threads/${threadId}/issues`, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+  });
+
+  const { data: allIssues } = useQuery<IssueWithDetails[]>({
+    queryKey: ["/api/issues"],
+    enabled: showLinkIssue,
+  });
+
+  const createIssueMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/issues", {
+        title: issueTitle || threadSubject,
+        description: issueDesc || null,
+        priority: issuePriority,
+      });
+      const issue: IssueWithDetails = await res.json();
+      await apiRequest("POST", `/api/issues/${issue.id}/link-thread`, { threadId });
+      return issue;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "issues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/issues"] });
+      toast({ title: "Issue created and linked" });
+      setShowCreateIssue(false);
+      setIssueTitle("");
+      setIssueDesc("");
+      setIssuePriority("Normal");
+    },
+    onError: (e: Error) => toast({ title: "Failed to create issue", description: e.message, variant: "destructive" }),
+  });
+
+  const linkExistingIssueMutation = useMutation({
+    mutationFn: (issueId: number) =>
+      apiRequest("POST", `/api/issues/${issueId}/link-thread`, { threadId }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "issues"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/issues"] });
+      toast({ title: "Issue linked" });
+      setShowLinkIssue(false);
+      setIssueSearch("");
+    },
+    onError: (e: Error) => toast({ title: "Failed to link issue", description: e.message, variant: "destructive" }),
+  });
+
   const assignedUser = users?.find(u => u.id === assignedUserId);
 
   const isMutating =
@@ -480,6 +536,154 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
               ))}
             </div>
           )}
+        </section>
+
+        <Separator />
+
+        {/* ─── Issues ────────────────────────────────────────────────── */}
+        <section>
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+              <AlertCircle className="h-3.5 w-3.5" />
+              Issue
+            </p>
+            <div className="flex gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => { setIssueTitle(threadSubject); setShowCreateIssue(true); }}
+                data-testid="button-create-thread-issue"
+              >
+                <Plus className="h-3 w-3 mr-0.5" />
+                Create
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setShowLinkIssue(true)}
+                data-testid="button-link-thread-issue"
+              >
+                <Link2 className="h-3 w-3 mr-0.5" />
+                Link
+              </Button>
+            </div>
+          </div>
+
+          {loadingIssues ? (
+            <Skeleton className="h-10 w-full rounded" />
+          ) : !threadIssues || threadIssues.length === 0 ? (
+            <p className="text-xs text-muted-foreground" data-testid="issue-unlinked">No issue linked.</p>
+          ) : (
+            <div className="space-y-1.5" data-testid="thread-issues-list">
+              {threadIssues.map(issue => (
+                <div
+                  key={issue.id}
+                  className="flex items-center gap-2 rounded-md border border-border/60 px-2.5 py-2 bg-muted/20"
+                  data-testid={`thread-issue-${issue.id}`}
+                >
+                  <AlertCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate">{issue.title}</p>
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <span className="text-xs text-muted-foreground">{issue.status}</span>
+                      <span className="text-xs text-muted-foreground">·</span>
+                      <span className="text-xs text-muted-foreground">{issue.priority}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Create Issue Dialog */}
+          <Dialog open={showCreateIssue} onOpenChange={v => !v && setShowCreateIssue(false)}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Create Issue</DialogTitle></DialogHeader>
+              <div className="space-y-3 py-2">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Title</label>
+                  <Input
+                    data-testid="input-sidebar-issue-title"
+                    value={issueTitle}
+                    onChange={e => setIssueTitle(e.target.value)}
+                    placeholder="Issue title"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Description</label>
+                  <Textarea
+                    data-testid="textarea-sidebar-issue-desc"
+                    value={issueDesc}
+                    onChange={e => setIssueDesc(e.target.value)}
+                    placeholder="Optional description…"
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Priority</label>
+                  <Select value={issuePriority} onValueChange={setIssuePriority}>
+                    <SelectTrigger data-testid="select-sidebar-issue-priority">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ISSUE_PRIORITIES.map(p => (
+                        <SelectItem key={p} value={p}>{p}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" size="sm" onClick={() => setShowCreateIssue(false)}>Cancel</Button>
+                <Button
+                  size="sm"
+                  disabled={!issueTitle.trim() || createIssueMutation.isPending}
+                  onClick={() => createIssueMutation.mutate()}
+                  data-testid="button-sidebar-create-issue-submit"
+                >
+                  {createIssueMutation.isPending ? "Creating…" : "Create Issue"}
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Link to Existing Issue Dialog */}
+          <Dialog open={showLinkIssue} onOpenChange={v => !v && setShowLinkIssue(false)}>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Link to Issue</DialogTitle></DialogHeader>
+              <div className="space-y-3 py-2">
+                <Input
+                  data-testid="input-sidebar-issue-search"
+                  placeholder="Search issues…"
+                  value={issueSearch}
+                  onChange={e => setIssueSearch(e.target.value)}
+                />
+                <ScrollArea className="h-56">
+                  {!allIssues?.length ? (
+                    <p className="text-sm text-muted-foreground text-center py-6">No issues found</p>
+                  ) : (
+                    allIssues
+                      .filter(i => i.title.toLowerCase().includes(issueSearch.toLowerCase()))
+                      .filter(i => !(threadIssues ?? []).find(ti => ti.id === i.id))
+                      .map(issue => (
+                        <button
+                          key={issue.id}
+                          className="w-full text-left px-3 py-2 hover:bg-muted rounded-md transition-colors"
+                          data-testid={`option-issue-${issue.id}`}
+                          onClick={() => linkExistingIssueMutation.mutate(issue.id)}
+                          disabled={linkExistingIssueMutation.isPending}
+                        >
+                          <p className="text-sm font-medium truncate">{issue.title}</p>
+                          <p className="text-xs text-muted-foreground">{issue.status} · {issue.priority}</p>
+                        </button>
+                      ))
+                  )}
+                </ScrollArea>
+              </div>
+            </DialogContent>
+          </Dialog>
         </section>
 
         <Separator />

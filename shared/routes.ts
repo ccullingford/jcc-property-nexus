@@ -6,7 +6,7 @@ import {
   insertIssueSchema, insertTaskSchema, insertCallSchema,
   users, mailboxes, emailThreads, messages, attachments,
   contacts, contactPhones, contactEmails, threadContacts,
-  properties, units, issues, tasks, calls,
+  properties, units, issues, tasks, calls, issueThreads,
 } from './schema';
 
 export type NoteWithUser = {
@@ -35,6 +35,7 @@ export type TaskWithMeta = typeof tasks.$inferSelect & {
   assigneeEmail: string | null;
   createdByName: string | null;
   threadSubject: string | null;
+  issueTitle: string | null;
 };
 
 export const TASK_STATUSES = ["Open", "In Progress", "Completed", "Cancelled"] as const;
@@ -45,6 +46,35 @@ export type TaskPriority = typeof TASK_PRIORITIES[number];
 
 export const CONTACT_TYPES = ["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Other"] as const;
 export type ContactType = typeof CONTACT_TYPES[number];
+
+export const ISSUE_STATUSES = ["Open", "In Progress", "Waiting", "Resolved", "Closed"] as const;
+export type IssueStatus = typeof ISSUE_STATUSES[number];
+
+export const ISSUE_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
+export type IssuePriority = typeof ISSUE_PRIORITIES[number];
+
+export type IssueWithDetails = typeof issues.$inferSelect & {
+  contactName: string | null;
+  assigneeName: string | null;
+  threadCount: number;
+  taskCount: number;
+  noteCount: number;
+};
+
+export type IssueTimelineItem = {
+  id: string;
+  type: "created" | "status_changed" | "thread_linked" | "task_linked" | "note" | "activity";
+  timestamp: string;
+  summary: string;
+  detail?: string;
+  actorName?: string | null;
+};
+
+export type IssueThreadWithThread = typeof issueThreads.$inferSelect & {
+  threadSubject: string | null;
+  threadStatus: string | null;
+  threadReceivedAt: string | null;
+};
 
 export type ContactWithDetails = typeof contacts.$inferSelect & {
   phones: typeof contactPhones.$inferSelect[];
@@ -203,6 +233,9 @@ export const api = {
     contacts: {
       list: { method: 'GET' as const, path: '/api/threads/:id/contacts' as const, responses: { 200: z.array(z.custom<ThreadContactWithContact>()) } },
     },
+    issues: {
+      list: { method: 'GET' as const, path: '/api/threads/:id/issues' as const, responses: { 200: z.array(z.custom<IssueWithDetails>()) } },
+    },
   },
 
   contacts: {
@@ -243,11 +276,22 @@ export const api = {
   },
 
   issues: {
-    list: { method: 'GET' as const, path: '/api/issues' as const, responses: { 200: z.array(z.custom<typeof issues.$inferSelect>()) } },
-    get: { method: 'GET' as const, path: '/api/issues/:id' as const, responses: { 200: z.custom<typeof issues.$inferSelect>() } },
-    create: { method: 'POST' as const, path: '/api/issues' as const, input: insertIssueSchema, responses: { 201: z.custom<typeof issues.$inferSelect>() } },
-    update: { method: 'PUT' as const, path: '/api/issues/:id' as const, input: insertIssueSchema.partial(), responses: { 200: z.custom<typeof issues.$inferSelect>() } },
+    list: { method: 'GET' as const, path: '/api/issues' as const, responses: { 200: z.array(z.custom<IssueWithDetails>()) } },
+    get: { method: 'GET' as const, path: '/api/issues/:id' as const, responses: { 200: z.custom<IssueWithDetails>() } },
+    create: { method: 'POST' as const, path: '/api/issues' as const, input: insertIssueSchema, responses: { 201: z.custom<IssueWithDetails>() } },
+    update: { method: 'PATCH' as const, path: '/api/issues/:id' as const, input: insertIssueSchema.partial(), responses: { 200: z.custom<IssueWithDetails>() } },
     delete: { method: 'DELETE' as const, path: '/api/issues/:id' as const, responses: { 204: z.void() } },
+    linkThread: { method: 'POST' as const, path: '/api/issues/:id/link-thread' as const, input: z.object({ threadId: z.number() }), responses: { 200: z.custom<IssueThreadWithThread>() } },
+    unlinkThread: { method: 'POST' as const, path: '/api/issues/:id/unlink-thread' as const, input: z.object({ threadId: z.number() }), responses: { 200: z.object({ success: z.boolean() }) } },
+    linkTask: { method: 'POST' as const, path: '/api/issues/:id/link-task' as const, input: z.object({ taskId: z.number() }), responses: { 200: z.custom<TaskWithMeta>() } },
+    unlinkTask: { method: 'POST' as const, path: '/api/issues/:id/unlink-task' as const, input: z.object({ taskId: z.number() }), responses: { 200: z.custom<TaskWithMeta>() } },
+    threads: { method: 'GET' as const, path: '/api/issues/:id/threads' as const, responses: { 200: z.array(z.custom<IssueThreadWithThread>()) } },
+    tasks: { method: 'GET' as const, path: '/api/issues/:id/tasks' as const, responses: { 200: z.array(z.custom<TaskWithMeta>()) } },
+    notes: {
+      list: { method: 'GET' as const, path: '/api/issues/:id/notes' as const, responses: { 200: z.array(z.custom<NoteWithUser>()) } },
+      create: { method: 'POST' as const, path: '/api/issues/:id/notes' as const, input: z.object({ body: z.string().min(1) }), responses: { 201: z.custom<NoteWithUser>() } },
+    },
+    timeline: { method: 'GET' as const, path: '/api/issues/:id/timeline' as const, responses: { 200: z.array(z.custom<IssueTimelineItem>()) } },
   },
 
   tasks: {

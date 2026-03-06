@@ -1,4 +1,4 @@
-import { Inbox, CheckSquare, AlertCircle, Users, Building2, Phone } from "lucide-react";
+import { Inbox, CheckSquare, Users, Building2, Phone } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 // ─── INBOX ───────────────────────────────────────────────────────────────────
@@ -43,25 +43,6 @@ export function TasksPage() {
           <CheckSquare className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
           <p className="text-sm text-muted-foreground">No tasks yet.</p>
           <p className="text-xs text-muted-foreground/60 mt-1">Tasks will appear here once created from threads or issues.</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── ISSUES ──────────────────────────────────────────────────────────────────
-export function IssuesPage() {
-  return (
-    <div className="flex flex-col h-full">
-      <div className="h-14 flex items-center justify-between px-6 border-b border-border shrink-0">
-        <h2 className="font-semibold text-sm">Issues</h2>
-        <Badge variant="secondary" className="text-xs" data-testid="badge-issue-count">0 open</Badge>
-      </div>
-      <div className="flex-1 flex items-center justify-center">
-        <div className="text-center p-8">
-          <AlertCircle className="h-8 w-8 text-muted-foreground/40 mx-auto mb-3" />
-          <p className="text-sm text-muted-foreground">No issues open.</p>
-          <p className="text-xs text-muted-foreground/60 mt-1">Issues group communication and tasks around a case or problem.</p>
         </div>
       </div>
     </div>

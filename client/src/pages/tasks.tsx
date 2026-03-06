@@ -392,6 +392,12 @@ function TaskRow({ task, onClick }: { task: TaskWithMeta; onClick: () => void })
               <span className="truncate max-w-[160px]">{task.threadSubject}</span>
             </span>
           )}
+          {task.issueTitle && (
+            <span className="text-xs text-orange-600 dark:text-orange-400 flex items-center gap-1" data-testid={`task-issue-link-${task.id}`}>
+              <AlertTriangle className="h-3 w-3" />
+              <span className="truncate max-w-[160px]">{task.issueTitle}</span>
+            </span>
+          )}
         </div>
       </div>
       <ChevronRight className="h-4 w-4 text-muted-foreground/50 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity" />

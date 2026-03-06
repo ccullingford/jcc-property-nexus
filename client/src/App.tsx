@@ -12,8 +12,8 @@ import { CallPopPage } from "@/pages/call-pop";
 import { InboxPage } from "@/pages/inbox";
 import { TasksPage } from "@/pages/tasks";
 import { ContactsPage } from "@/pages/contacts";
+import { IssuesPage } from "@/pages/issues";
 import {
-  IssuesPage,
   PropertiesPage,
   CallsPage,
 } from "@/pages/placeholders";

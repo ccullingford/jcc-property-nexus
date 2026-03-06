@@ -207,7 +207,12 @@ export class DatabaseStorage implements IStorage {
     const threadRows = threadIds.length
       ? await db.select().from(emailThreads).where(inArray(emailThreads.id, threadIds))
       : [];
+    const issueIds = Array.from(new Set(rows.map(t => t.issueId).filter((id): id is number => id !== null)));
+    const issueRows = issueIds.length
+      ? await db.select().from(issues).where(inArray(issues.id, issueIds))
+      : [];
     const threadMap = new Map(threadRows.map(t => [t.id, t.subject]));
+    const issueMap = new Map(issueRows.map(i => [i.id, i.title]));
     const userMap = new Map(allUsers.map(u => [u.id, u]));
     return rows.map(task => ({
       ...task,
@@ -215,6 +220,7 @@ export class DatabaseStorage implements IStorage {
       assigneeEmail: task.assignedUserId ? (userMap.get(task.assignedUserId)?.email ?? null) : null,
       createdByName: task.createdByUserId ? (userMap.get(task.createdByUserId)?.name ?? null) : null,
       threadSubject: task.threadId ? (threadMap.get(task.threadId) ?? null) : null,
+      issueTitle: task.issueId ? (issueMap.get(task.issueId) ?? null) : null,
     }));
   }
 

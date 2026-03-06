@@ -1,0 +1,295 @@
+Build Chunk 6 of the Property Management Operations Platform.
+
+Chunks 1 through 5 are already complete. Do not rebuild the foundation, inbox workflow, task system, or contacts layer. Extend the existing application.
+
+This chunk is ONLY for the **Issues / Cases Layer**.
+
+## Required stack
+Keep the existing stack exactly as-is:
+- Frontend: React
+- Backend: Node.js
+- Database: Postgres
+
+Do not replace or re-architect the stack.
+
+## Goal of Chunk 6
+Introduce a real operational issue/case layer so the system can group related emails, tasks, notes, and contacts under a single matter.
+
+This chunk should add:
+- issue/case records
+- create issue from thread workflow
+- link existing tasks to issues
+- link existing threads to issues
+- issue detail page
+- issue status and priority handling
+- issue timeline / activity visibility
+
+Do NOT build property/unit linking, RingEX integration, advanced automation, or AI in this chunk.
+
+## What this chunk must deliver
+1. issue/case records stored in Postgres
+2. create issue from thread workflow
+3. issue status and priority support
+4. issue detail page
+5. ability to link threads to issues
+6. ability to link tasks to issues
+7. issue notes support using existing internal note patterns where appropriate
+8. issue-level activity/timeline support
+
+## Important constraints
+- Do NOT rebuild earlier chunks
+- Do NOT use static mock issue data as the primary implementation
+- Do NOT build property and unit models yet
+- Do NOT build RingEX call pop yet
+- Do NOT build AI features
+- The issue layer must work with existing threads, tasks, contacts, and notes
+- The system must treat issues as operational matters, not customer support tickets with unrelated fields
+
+## Architecture requirements
+
+### Backend
+Add services such as:
+- `issueService`
+- `issueLinkService`
+- `issueTimelineService`
+- `issueQueryService`
+
+Responsibilities:
+
+#### issueService
+- create issues
+- update issues
+- retrieve issue details
+- manage status and priority
+
+#### issueLinkService
+- link threads to issues
+- unlink threads from issues if needed
+- link tasks to issues
+- unlink tasks from issues if needed
+
+#### issueTimelineService
+- aggregate issue-related activity from:
+  - linked threads
+  - linked tasks
+  - notes
+  - status changes
+- return timeline data for the issue detail page
+
+#### issueQueryService
+- list issues
+- filter by status
+- filter by priority
+- filter by assignee if applicable through linked tasks or future ownership
+
+### API endpoints
+Create endpoints such as:
+
+- `GET /api/issues`
+- `POST /api/issues`
+- `GET /api/issues/:id`
+- `PATCH /api/issues/:id`
+- `POST /api/issues/:id/link-thread`
+- `POST /api/issues/:id/unlink-thread`
+- `POST /api/issues/:id/link-task`
+- `POST /api/issues/:id/unlink-task`
+- `GET /api/issues/:id/timeline`
+
+Support filtering on issue lists such as:
+- status
+- priority
+- open only
+- closed only
+
+## Database requirements
+
+Create migrations for the following.
+
+### issues
+Fields:
+- `id`
+- `title`
+- `description` nullable
+- `contact_id` nullable
+- `status`
+- `priority`
+- `created_by_user_id`
+- `assigned_user_id` nullable
+- `created_at`
+- `updated_at`
+- `closed_at` nullable
+
+Allowed statuses for this chunk:
+- `Open`
+- `In Progress`
+- `Waiting`
+- `Resolved`
+- `Closed`
+
+Allowed priorities for this chunk:
+- `Low`
+- `Normal`
+- `High`
+- `Urgent`
+
+### issue_threads
+Fields:
+- `id`
+- `issue_id`
+- `thread_id`
+- `created_at`
+
+### Optional issue_notes table
+Use one of these approaches:
+1. create a dedicated `issue_notes` table, or
+2. extend the existing notes system cleanly so notes can belong to an issue as well as a thread
+
+If creating `issue_notes`, fields:
+- `id`
+- `issue_id`
+- `user_id`
+- `body`
+- `created_at`
+- `updated_at`
+
+Requirements:
+- do not duplicate note logic unnecessarily
+- preserve compatibility with existing thread notes
+
+### Task linkage
+If tasks already contain `issue_id`, use that field directly.
+If not, add nullable `issue_id` to `tasks`.
+
+Add proper foreign keys, indexes, and uniqueness constraints where appropriate.
+
+## Workflow requirements
+
+### Create issue from thread
+From a thread, user should be able to:
+- click Create Issue
+- prefill title from thread subject if sensible
+- optionally attach description
+- optionally connect a linked contact if one exists
+- set priority
+- create the issue and link the current thread to it
+
+### Manage issue
+Users should be able to:
+- update title and description
+- update status
+- update priority
+- optionally assign issue owner if this field is included
+- close or resolve issue
+
+### Link related work
+Users should be able to:
+- link additional threads to an issue
+- unlink threads when needed
+- link tasks to an issue
+- unlink tasks when needed
+
+### Issue timeline
+Issue detail page should show a timeline composed from real data such as:
+- issue created
+- issue status changed
+- linked thread activity
+- linked task activity
+- issue notes
+
+This timeline can be simple in this chunk, but it must be real and persisted.
+
+## Frontend requirements
+
+### Issues page
+Create a dedicated Issues page with:
+- issue list
+- filtering by status and priority
+- create issue action
+
+Each issue row/card should show:
+- title
+- status
+- priority
+- linked contact if present
+- created date or last updated date
+
+### Issue detail page
+Display:
+- title
+- description
+- status
+- priority
+- linked contact if present
+- linked threads
+- linked tasks
+- notes
+- timeline
+
+Use tabs or sections such as:
+- Overview
+- Tasks
+- Emails
+- Notes
+- Activity
+
+### Thread view updates
+Add issue-related UI in thread view:
+- show linked issue if present
+- Create Issue action
+- link thread to existing issue if useful and clean
+- navigation from thread to issue
+
+### Task view updates
+If task detail/edit exists, show linked issue and allow navigation to it.
+
+### UX requirements
+The issue experience should feel like the operational center for a real matter:
+- easy to create from a thread
+- easy to see all related work in one place
+- easy to move between issue, thread, and task
+- clear status and priority
+
+## Authorization and user handling
+Use the authenticated internal user model already in place.
+
+At minimum:
+- internal users can create and edit issues
+- issue history remains internal to the app
+- issue linking uses existing internal objects only
+
+## Code quality requirements
+- keep business logic in backend services
+- use migrations for schema changes
+- keep issue aggregation logic out of React components
+- preserve compatibility with future property/unit linking and RingEX call integration
+- keep the issue model simple but extensible
+
+## Explicitly do not build yet
+Do not build any of the following in this chunk:
+- property/unit linking
+- RingEX integration
+- advanced automation rules
+- AI features
+
+## Definition of done
+Chunk 6 is complete when:
+1. users can create issues/cases
+2. threads can be linked to issues
+3. tasks can be linked to issues
+4. issue detail pages show real related data
+5. issue status and priority can be managed
+6. issue timeline/activity is visible
+7. all issue data persists in Postgres
+8. the system is cleanly ready for Chunk 7
+
+## Deliverables
+Produce:
+- Postgres migrations for issues and issue linking
+- backend issue services
+- issue APIs
+- issues UI and issue detail UI
+- thread/issue linking UI
+- any needed task/issue linking updates
+- brief explanation of issue model and relationship decisions
+
+Again: this chunk is only the Issues / Cases Layer. Build it as a real operational grouping layer for emails, tasks, and contacts, not as a generic ticketing demo.

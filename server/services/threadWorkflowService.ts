@@ -184,6 +184,23 @@ export async function getNotesWithUsers(
   return result;
 }
 
+export async function getNotesByIssueWithUsers(
+  issueId: number,
+  storage: IStorage,
+): Promise<NoteWithUser[]> {
+  const rawNotes = await storage.getNotesByIssue(issueId);
+  const result: NoteWithUser[] = [];
+  for (const n of rawNotes) {
+    const author = n.userId ? await storage.getUser(n.userId) : null;
+    result.push({
+      ...n,
+      authorName: author?.name ?? null,
+      authorEmail: author?.email ?? null,
+    });
+  }
+  return result;
+}
+
 export async function getActivityWithUsers(
   threadId: number,
   storage: IStorage,

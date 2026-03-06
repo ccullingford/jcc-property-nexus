@@ -20,6 +20,11 @@ import {
 import { searchContacts, getContactWithDetails } from "./services/contactSearchService";
 import { createContact, updateContact as updateContactService, addContactPhone, addContactEmail, linkThreadContact, unlinkThreadContact, getThreadContacts } from "./services/contactService";
 import { getContactTimeline } from "./services/contactTimelineService";
+import { createIssue as createIssueService, updateIssue as updateIssueService, getIssueWithDetails } from "./services/issueService";
+import { listIssues } from "./services/issueQueryService";
+import { linkIssueThread, unlinkIssueThread, linkIssueTask, unlinkIssueTask, getIssueThreads, getIssueTasks, getThreadIssues } from "./services/issueLinkService";
+import { getIssueTimeline } from "./services/issueTimelineService";
+import { getNotesByIssueWithUsers } from "./services/threadWorkflowService";
 import expressSession from "express-session";
 import { syncMailbox } from "./services/syncService";
 import { isGraphConfigured } from "./services/graphService";
@@ -552,37 +557,159 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ─── Issues ───────────────────────────────────────────────────────────────
-  app.get(api.issues.list.path, async (_req, res) => res.json(await storage.getIssues()));
+  app.get(api.issues.list.path, async (req, res) => {
+    try {
+      const { status, priority, openOnly, closedOnly } = req.query;
+      const results = await listIssues({
+        status: typeof status === 'string' ? status : undefined,
+        priority: typeof priority === 'string' ? priority : undefined,
+        openOnly: openOnly === 'true',
+        closedOnly: closedOnly === 'true',
+      });
+      res.json(results);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
   app.get(api.issues.get.path, async (req, res) => {
-    const issue = await storage.getIssue(Number(req.params.id));
-    if (!issue) return res.status(404).json({ message: "Issue not found" });
-    res.json(issue);
+    try {
+      const issue = await getIssueWithDetails(Number(req.params.id));
+      if (!issue) return res.status(404).json({ message: "Issue not found" });
+      res.json(issue);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   app.post(api.issues.create.path, async (req, res) => {
     try {
-      const input = api.issues.create.input.parse(req.body);
-      res.status(201).json(await storage.createIssue(input));
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: "Internal error" });
+      const { title, description, contactId, assignedUserId, priority, status } = req.body;
+      if (!title) return res.status(400).json({ message: "title is required" });
+      const issue = await createIssueService(
+        { title, description, contactId, assignedUserId, priority, status },
+        req.session.userId,
+      );
+      res.status(201).json(issue);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
-  app.put(api.issues.update.path, async (req, res) => {
+  app.patch(api.issues.update.path, async (req, res) => {
     try {
-      const input = api.issues.update.input.parse(req.body);
-      res.json(await storage.updateIssue(Number(req.params.id), input));
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: "Internal error" });
+      const issue = await updateIssueService(Number(req.params.id), req.body, req.session.userId);
+      if (!issue) return res.status(404).json({ message: "Issue not found" });
+      res.json(issue);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 
   app.delete(api.issues.delete.path, async (req, res) => {
     await storage.deleteIssue(Number(req.params.id));
     res.status(204).send();
+  });
+
+  app.get(api.issues.threads.path, async (req, res) => {
+    try {
+      res.json(await getIssueThreads(Number(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.issues.linkThread.path, async (req, res) => {
+    try {
+      const { threadId } = api.issues.linkThread.input.parse(req.body);
+      res.json(await linkIssueThread(Number(req.params.id), threadId, req.session.userId));
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.issues.unlinkThread.path, async (req, res) => {
+    try {
+      const { threadId } = api.issues.unlinkThread.input.parse(req.body);
+      await unlinkIssueThread(Number(req.params.id), threadId, req.session.userId);
+      res.json({ success: true });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get(api.issues.tasks.path, async (req, res) => {
+    try {
+      res.json(await getIssueTasks(Number(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.issues.linkTask.path, async (req, res) => {
+    try {
+      const { taskId } = api.issues.linkTask.input.parse(req.body);
+      const result = await linkIssueTask(Number(req.params.id), taskId, req.session.userId);
+      res.json(result);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.issues.unlinkTask.path, async (req, res) => {
+    try {
+      const { taskId } = api.issues.unlinkTask.input.parse(req.body);
+      const result = await unlinkIssueTask(Number(req.params.id), taskId, req.session.userId);
+      res.json(result);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get(api.issues.notes.list.path, async (req, res) => {
+    try {
+      res.json(await getNotesByIssueWithUsers(Number(req.params.id), storage));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.issues.notes.create.path, async (req, res) => {
+    try {
+      const { body } = api.issues.notes.create.input.parse(req.body);
+      const note = await storage.createNote({ issueId: Number(req.params.id), userId: req.session.userId!, body });
+      const author = req.session.userId ? await storage.getUser(req.session.userId) : null;
+      res.status(201).json({
+        ...note,
+        authorName: author?.name ?? null,
+        authorEmail: author?.email ?? null,
+      });
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get(api.issues.timeline.path, async (req, res) => {
+    try {
+      res.json(await getIssueTimeline(Number(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get(api.threads.issues.list.path, async (req, res) => {
+    try {
+      const threadIssues = await getThreadIssues(Number(req.params.id));
+      const enriched = await Promise.all(threadIssues.map(i => getIssueWithDetails(i.id)));
+      res.json(enriched.filter(Boolean));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // ─── Thread Tasks ─────────────────────────────────────────────────────────
