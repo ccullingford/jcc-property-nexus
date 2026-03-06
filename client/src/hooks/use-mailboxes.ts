@@ -64,7 +64,10 @@ export function useDeleteMailbox() {
         method: api.mailboxes.delete.method,
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Failed to delete mailbox");
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message ?? "Failed to delete mailbox");
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.mailboxes.list.path] });

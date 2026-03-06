@@ -44,6 +44,7 @@ export interface IStorage {
   createMailbox(mailbox: InsertMailbox): Promise<Mailbox>;
   updateMailbox(id: number, updates: Partial<InsertMailbox>): Promise<Mailbox>;
   deleteMailbox(id: number): Promise<void>;
+  countThreadsByMailbox(mailboxId: number): Promise<number>;
 
   // Email Threads
   getThreads(mailboxId?: number): Promise<ThreadWithMeta[]>;
@@ -121,6 +122,10 @@ export class DatabaseStorage implements IStorage {
   async createMailbox(m: InsertMailbox) { const [r] = await db.insert(mailboxes).values(m).returning(); return r; }
   async updateMailbox(id: number, m: Partial<InsertMailbox>) { const [r] = await db.update(mailboxes).set(m).where(eq(mailboxes.id, id)).returning(); return r; }
   async deleteMailbox(id: number) { await db.delete(mailboxes).where(eq(mailboxes.id, id)); }
+  async countThreadsByMailbox(mailboxId: number): Promise<number> {
+    const [row] = await db.select({ count: sql<number>`count(*)::int` }).from(emailThreads).where(eq(emailThreads.mailboxId, mailboxId));
+    return row?.count ?? 0;
+  }
 
   // Email Threads — enriched with unread count + latest sender
   async getThreads(mailboxId?: number): Promise<ThreadWithMeta[]> {

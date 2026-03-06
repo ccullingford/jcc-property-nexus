@@ -320,8 +320,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.delete(api.mailboxes.delete.path, requireRole("admin"), async (req, res) => {
-    await storage.deleteMailbox(Number(req.params.id));
-    res.status(204).send();
+    try {
+      const mailboxId = Number(req.params.id);
+      const threadCount = await storage.countThreadsByMailbox(mailboxId);
+      if (threadCount > 0) {
+        return res.status(409).json({
+          message: `Cannot delete this mailbox — it has ${threadCount} thread${threadCount === 1 ? "" : "s"}. Archive or reassign them first.`,
+        });
+      }
+      await storage.deleteMailbox(mailboxId);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message ?? "Failed to delete mailbox" });
+    }
   });
 
   // ─── Mailbox Sync ─────────────────────────────────────────────────────────
