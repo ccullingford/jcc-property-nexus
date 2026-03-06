@@ -20,9 +20,9 @@ server/
   storage.ts      # DatabaseStorage class (all DB operations)
   routes.ts       # Route handlers — includes OAuth, RBAC middleware
   services/
-    graphService.ts           # Microsoft Graph (mailbox sync via Replit Outlook connector)
-    microsoftAuthService.ts   # PKCE helpers, token exchange, Graph user profile
-    syncService.ts            # Thread/message sync orchestration
+    graphService.ts           # Microsoft Graph (mailbox sync via Replit Outlook connector); fetchMailboxMessages/fetchMessageAttachments accept optional token param
+    microsoftAuthService.ts   # PKCE helpers, token exchange, refreshAccessToken(), Graph user profile; scope includes Mail.Read
+    syncService.ts            # Thread/message sync orchestration; resolves app-only vs delegated token based on mailbox.syncMode
     threadWorkflowService.ts  # Thread workflow: claim, assign, unassign, status change, notes, activity
     taskService.ts            # Task creation, update, assignment, status changes with activity logging
     contactIdentityService.ts # Email normalization, phone normalization, findContactByEmail/Phone
@@ -53,8 +53,8 @@ client/src/
 ```
 
 ## Database Schema (all tables in Postgres)
-- **users** — id, name, email, role (admin|manager|staff), created_at
-- **mailboxes** — id, name, type (shared|personal), microsoft_mailbox_id, is_default, created_at
+- **users** — id, name, email, role (admin|manager|staff), ms_access_token, ms_refresh_token, ms_token_expires_at, created_at
+- **mailboxes** — id, name, type (shared|personal), microsoft_mailbox_id, is_default, sync_mode (application|delegated), owner_user_id (FK→users), created_at
 - **email_threads** — id, mailbox_id, subject, microsoft_thread_id, assigned_user_id, contact_id, property_id, status, last_message_at, updated_at, created_at
 - **messages** — id, thread_id, microsoft_message_id, sender_email, sender_name, recipients[], subject, body, body_html, body_preview, received_at, has_attachments, is_read, updated_at
 - **attachments** — id, message_id, microsoft_attachment_id, name, content_type, size_bytes

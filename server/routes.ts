@@ -234,6 +234,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
+      // Store delegated tokens for personal mailbox sync
+      if (tokens.access_token) {
+        await storage.updateUserTokens(user.id, {
+          msAccessToken: tokens.access_token,
+          msRefreshToken: tokens.refresh_token ?? "",
+          msTokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+        });
+      }
+
       // Establish session
       req.session.userId = user.id;
       req.session.userRole = user.role;
@@ -298,11 +307,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ─── Mailboxes (admin-only for management) ────────────────────────────────
-  app.get(api.mailboxes.list.path, async (_req, res) => res.json(await storage.getMailboxes()));
+  app.get(api.mailboxes.list.path, requireAuth, async (req, res) => {
+    const userId = req.session.userId!;
+    const role = req.session.userRole;
+    // Admins see all; regular users only see shared + their own personal mailboxes
+    const forUserId = role === "admin" ? undefined : userId;
+    res.json(await storage.getMailboxes(forUserId));
+  });
 
   app.post(api.mailboxes.create.path, requireRole("admin"), async (req, res) => {
     try {
       const input = api.mailboxes.create.input.parse(req.body);
+      // Auto-assign delegated mode if syncMode is "delegated" without explicit ownerUserId
+      if (input.syncMode === "delegated" && !input.ownerUserId) {
+        input.ownerUserId = req.session.userId ?? null;
+      }
       res.status(201).json(await storage.createMailbox(input));
     } catch (err) {
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
@@ -337,10 +356,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ─── Mailbox Sync ─────────────────────────────────────────────────────────
-  app.post(api.mailboxes.sync.path, async (req, res) => {
+  app.post(api.mailboxes.sync.path, requireAuth, async (req, res) => {
     try {
       const mailbox = await storage.getMailbox(Number(req.params.id));
       if (!mailbox) return res.status(404).json({ message: "Mailbox not found" });
+
+      // For delegated mailboxes, only the owner (or an admin) may trigger sync
+      if (mailbox.syncMode === "delegated" && mailbox.ownerUserId !== req.session.userId) {
+        const role = req.session.userRole;
+        if (role !== "admin") {
+          return res.status(403).json({ message: "Only the mailbox owner can sync a personal mailbox." });
+        }
+      }
+
       const result = await syncMailbox(mailbox);
       res.json(result);
     } catch (err: any) {

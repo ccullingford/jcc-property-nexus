@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogT
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Edit2, Trash2, Mail, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Edit2, Trash2, Mail, CheckCircle2, XCircle, Server, User } from "lucide-react";
 import { z } from "zod";
 import { api } from "@shared/routes";
 
@@ -35,6 +35,7 @@ export function Admin() {
             <TableRow>
               <TableHead>Mailbox Name</TableHead>
               <TableHead>Type</TableHead>
+              <TableHead>Sync Mode</TableHead>
               <TableHead>Microsoft ID</TableHead>
               <TableHead>Default</TableHead>
               <TableHead className="text-right">Actions</TableHead>
@@ -43,13 +44,13 @@ export function Admin() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                   Loading mailboxes...
                 </TableCell>
               </TableRow>
             ) : mailboxes?.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center">
+                <TableCell colSpan={6} className="h-32 text-center">
                   <div className="flex flex-col items-center justify-center text-muted-foreground">
                     <Mail className="h-8 w-8 mb-2 opacity-50" />
                     <p>No mailboxes configured</p>
@@ -58,12 +59,15 @@ export function Admin() {
               </TableRow>
             ) : (
               mailboxes?.map((mailbox) => (
-                <TableRow key={mailbox.id} className="group hover:bg-muted/30 transition-colors">
+                <TableRow key={mailbox.id} data-testid={`row-mailbox-${mailbox.id}`} className="group hover:bg-muted/30 transition-colors">
                   <TableCell className="font-medium">{mailbox.name}</TableCell>
                   <TableCell>
                     <Badge variant={mailbox.type === "shared" ? "default" : "secondary"} className="capitalize">
                       {mailbox.type}
                     </Badge>
+                  </TableCell>
+                  <TableCell>
+                    <SyncModeBadge mode={(mailbox as any).syncMode ?? "application"} />
                   </TableCell>
                   <TableCell className="text-muted-foreground font-mono text-xs">
                     {mailbox.microsoftMailboxId || "—"}
@@ -91,10 +95,28 @@ export function Admin() {
   );
 }
 
+function SyncModeBadge({ mode }: { mode: string }) {
+  if (mode === "delegated") {
+    return (
+      <Badge variant="outline" className="gap-1 text-xs border-blue-300 text-blue-700 dark:border-blue-600 dark:text-blue-400">
+        <User className="h-3 w-3" />
+        Delegated
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="gap-1 text-xs border-muted-foreground/30 text-muted-foreground">
+      <Server className="h-3 w-3" />
+      App-only
+    </Badge>
+  );
+}
+
 function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defaultValues?: Mailbox }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(defaultValues?.name || "");
   const [type, setType] = useState(defaultValues?.type || "shared");
+  const [syncMode, setSyncMode] = useState<string>((defaultValues as any)?.syncMode ?? "application");
   const [microsoftMailboxId, setMicrosoftMailboxId] = useState(defaultValues?.microsoftMailboxId || "");
   const [isDefault, setIsDefault] = useState(defaultValues?.isDefault || false);
   
@@ -106,7 +128,13 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const data = { name, type, microsoftMailboxId: microsoftMailboxId || null, isDefault };
+    const data = {
+      name,
+      type,
+      syncMode: syncMode as "application" | "delegated",
+      microsoftMailboxId: microsoftMailboxId || null,
+      isDefault,
+    };
     
     if (mode === "create") {
       createMutation.mutate(data as any, {
@@ -131,6 +159,7 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
   const reset = () => {
     setName("");
     setType("shared");
+    setSyncMode("application");
     setMicrosoftMailboxId("");
     setIsDefault(false);
   };
@@ -139,12 +168,12 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         {mode === "create" ? (
-          <Button className="hover-elevate gap-2">
+          <Button data-testid="button-add-mailbox" className="hover-elevate gap-2">
             <Plus className="h-4 w-4" />
             Add Mailbox
           </Button>
         ) : (
-          <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
+          <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground" data-testid={`button-edit-mailbox-${defaultValues?.id}`}>
             <Edit2 className="h-4 w-4" />
           </Button>
         )}
@@ -159,6 +188,7 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
               <Label htmlFor="name">Mailbox Name</Label>
               <Input
                 id="name"
+                data-testid="input-mailbox-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Support Team"
@@ -169,7 +199,7 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
             <div className="grid gap-2">
               <Label htmlFor="type">Account Type</Label>
               <Select value={type} onValueChange={setType}>
-                <SelectTrigger>
+                <SelectTrigger data-testid="select-mailbox-type">
                   <SelectValue placeholder="Select type" />
                 </SelectTrigger>
                 <SelectContent>
@@ -180,9 +210,28 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
             </div>
 
             <div className="grid gap-2">
+              <Label htmlFor="sync-mode">Sync Mode</Label>
+              <Select value={syncMode} onValueChange={setSyncMode}>
+                <SelectTrigger data-testid="select-sync-mode">
+                  <SelectValue placeholder="Select sync mode" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="application">App-only (shared mailboxes)</SelectItem>
+                  <SelectItem value="delegated">Delegated (personal mailboxes)</SelectItem>
+                </SelectContent>
+              </Select>
+              {syncMode === "delegated" && (
+                <p className="text-xs text-muted-foreground">
+                  Uses the owner's Microsoft login token. The owner must be signed in to sync.
+                </p>
+              )}
+            </div>
+
+            <div className="grid gap-2">
               <Label htmlFor="ms-id">Microsoft Mailbox ID (Optional)</Label>
               <Input
                 id="ms-id"
+                data-testid="input-mailbox-ms-id"
                 value={microsoftMailboxId}
                 onChange={(e) => setMicrosoftMailboxId(e.target.value)}
                 placeholder="support@company.com"
@@ -192,6 +241,7 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
             <div className="flex items-center space-x-2 pt-2 border-t">
               <Checkbox
                 id="default"
+                data-testid="checkbox-mailbox-default"
                 checked={isDefault}
                 onCheckedChange={(c) => setIsDefault(!!c)}
               />
@@ -204,7 +254,7 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit", defau
             <Button type="button" variant="outline" onClick={() => setOpen(false)} disabled={isPending}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isPending}>
+            <Button type="submit" data-testid="button-save-mailbox" disabled={isPending}>
               {isPending ? "Saving..." : "Save Mailbox"}
             </Button>
           </DialogFooter>
@@ -232,7 +282,7 @@ function DeleteMailboxAlert({ mailbox }: { mailbox: Mailbox }) {
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
       <AlertDialogTrigger asChild>
-        <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:border-destructive hover:bg-destructive/5">
+        <Button variant="outline" size="icon" className="h-8 w-8 text-muted-foreground hover:text-destructive hover:border-destructive hover:bg-destructive/5" data-testid={`button-delete-mailbox-${mailbox.id}`}>
           <Trash2 className="h-4 w-4" />
         </Button>
       </AlertDialogTrigger>

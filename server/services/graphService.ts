@@ -209,9 +209,9 @@ async function graphGet<T>(path: string, token: string): Promise<T> {
  */
 export async function fetchMailboxMessages(
   mailboxAddress: string,
-  options: { top?: number; skip?: number } = {}
+  options: { top?: number; skip?: number; token?: string } = {}
 ): Promise<GraphMessage[]> {
-  const token = await getSyncToken();
+  const token = options.token ?? await getSyncToken();
   const top = options.top ?? 50;
   const skip = options.skip ?? 0;
   const select = [
@@ -266,13 +266,14 @@ export async function fetchMailboxMessages(
  */
 export async function fetchMessageAttachments(
   mailboxAddress: string,
-  messageId: string
+  messageId: string,
+  token?: string
 ): Promise<GraphAttachment[]> {
-  const token = await getSyncToken();
+  const resolvedToken = token ?? await getSyncToken();
   const path =
     `/users/${encodeURIComponent(mailboxAddress)}/messages/${messageId}/attachments` +
     `?$select=id,name,contentType,size`;
-  const data = await graphGet<{ value: GraphAttachment[] }>(path, token);
+  const data = await graphGet<{ value: GraphAttachment[] }>(path, resolvedToken);
   return data.value;
 }
 

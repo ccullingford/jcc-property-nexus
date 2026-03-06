@@ -53,7 +53,7 @@ export function buildAuthorizationUrl(params: {
     response_type: "code",
     redirect_uri: params.redirectUri,
     response_mode: "query",
-    scope: "openid profile email User.Read offline_access",
+    scope: "openid profile email User.Read Mail.Read offline_access",
     state: params.state,
     code_challenge: params.codeChallenge,
     code_challenge_method: "S256",
@@ -89,7 +89,7 @@ export async function exchangeCodeForToken(params: {
     redirect_uri: params.redirectUri,
     code: params.code,
     code_verifier: params.codeVerifier,
-    scope: "openid profile email User.Read offline_access",
+    scope: "openid profile email User.Read Mail.Read offline_access",
   });
 
   const res = await fetch(
@@ -104,6 +104,38 @@ export async function exchangeCodeForToken(params: {
   const data: TokenResponse = await res.json();
   if (data.error) {
     throw new Error(`Token exchange failed: ${data.error_description || data.error}`);
+  }
+  return data;
+}
+
+// ── Token refresh ─────────────────────────────────────────────────────────────
+
+export async function refreshAccessToken(params: {
+  clientId: string;
+  clientSecret: string;
+  tenantId: string;
+  refreshToken: string;
+}): Promise<TokenResponse> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    client_id: params.clientId,
+    client_secret: params.clientSecret,
+    refresh_token: params.refreshToken,
+    scope: "openid profile email User.Read Mail.Read offline_access",
+  });
+
+  const res = await fetch(
+    `https://login.microsoftonline.com/${params.tenantId}/oauth2/v2.0/token`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    }
+  );
+
+  const data: TokenResponse = await res.json();
+  if (data.error) {
+    throw new Error(`Token refresh failed: ${data.error_description || data.error}`);
   }
   return data;
 }

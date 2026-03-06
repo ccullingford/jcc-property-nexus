@@ -17,7 +17,7 @@ import {
   type Call, type InsertCall,
   type ActivityLog, type InsertActivityLog,
 } from "@shared/schema";
-import { eq, desc, and, lt, notInArray, inArray, sql } from "drizzle-orm";
+import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull } from "drizzle-orm";
 import type { TaskWithMeta } from "@shared/routes";
 
 export type ThreadWithMeta = EmailThread & {
@@ -37,9 +37,10 @@ export interface IStorage {
   getUsers(): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, updates: Partial<InsertUser>): Promise<User>;
+  updateUserTokens(id: number, tokens: { msAccessToken: string; msRefreshToken: string; msTokenExpiresAt: Date }): Promise<void>;
 
   // Mailboxes
-  getMailboxes(): Promise<Mailbox[]>;
+  getMailboxes(forUserId?: number): Promise<Mailbox[]>;
   getMailbox(id: number): Promise<Mailbox | undefined>;
   createMailbox(mailbox: InsertMailbox): Promise<Mailbox>;
   updateMailbox(id: number, updates: Partial<InsertMailbox>): Promise<Mailbox>;
@@ -115,9 +116,24 @@ export class DatabaseStorage implements IStorage {
   async getUsers() { return db.select().from(users); }
   async createUser(u: InsertUser) { const [r] = await db.insert(users).values(u).returning(); return r; }
   async updateUser(id: number, u: Partial<InsertUser>) { const [r] = await db.update(users).set(u).where(eq(users.id, id)).returning(); return r; }
+  async updateUserTokens(id: number, tokens: { msAccessToken: string; msRefreshToken: string; msTokenExpiresAt: Date }) {
+    await db.update(users).set({
+      msAccessToken: tokens.msAccessToken,
+      msRefreshToken: tokens.msRefreshToken,
+      msTokenExpiresAt: tokens.msTokenExpiresAt,
+    }).where(eq(users.id, id));
+  }
 
   // Mailboxes
-  async getMailboxes() { return db.select().from(mailboxes); }
+  async getMailboxes(forUserId?: number) {
+    if (forUserId === undefined) return db.select().from(mailboxes);
+    return db.select().from(mailboxes).where(
+      or(
+        eq(mailboxes.syncMode, "application"),
+        and(eq(mailboxes.syncMode, "delegated"), eq(mailboxes.ownerUserId, forUserId))
+      )
+    );
+  }
   async getMailbox(id: number) { const [r] = await db.select().from(mailboxes).where(eq(mailboxes.id, id)); return r; }
   async createMailbox(m: InsertMailbox) { const [r] = await db.insert(mailboxes).values(m).returning(); return r; }
   async updateMailbox(id: number, m: Partial<InsertMailbox>) { const [r] = await db.update(mailboxes).set(m).where(eq(mailboxes.id, id)).returning(); return r; }

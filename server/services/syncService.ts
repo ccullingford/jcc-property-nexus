@@ -4,11 +4,10 @@
  * Pulls messages from Microsoft Graph for a configured mailbox,
  * groups them into threads by conversationId, and upserts into Postgres.
  *
- * Design notes:
- * - This is a first-pass sync — straightforward message pull.
- * - Future: implement delta sync using Graph $deltaToken for efficiency.
- * - Duplicate prevention via microsoft_message_id UNIQUE index.
- * - Per-thread last_message_at is updated after each sync pass.
+ * Sync modes:
+ *   application — uses app-only (client credentials) token. Required for shared mailboxes.
+ *   delegated   — uses the mailbox owner's stored OAuth token. Required for personal mailboxes
+ *                 when the Exchange AppOnly AccessPolicy blocks app-only access.
  */
 
 import { db } from "../db";
@@ -18,13 +17,15 @@ import {
   attachments as attachmentsTable,
   type Mailbox,
 } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import { desc } from "drizzle-orm";
 import {
   fetchMailboxMessages,
   fetchMessageAttachments,
   type GraphMessage,
 } from "./graphService";
-// Uses Replit Outlook connector (REPLIT_CONNECTORS_HOSTNAME) or app-only credentials
+import { refreshAccessToken, getOAuthConfig } from "./microsoftAuthService";
+import { storage } from "../storage";
 
 export interface SyncResult {
   mailboxId: number;
@@ -32,6 +33,64 @@ export interface SyncResult {
   threadsUpserted: number;
   messagesUpserted: number;
   errors: string[];
+}
+
+/**
+ * Resolve the Graph access token to use for a given mailbox.
+ *
+ * - syncMode "application": returns undefined — graphService will use app-only token.
+ * - syncMode "delegated": fetches the owner user's stored token, refreshing if expired.
+ *   Returns the valid access token string.
+ *
+ * Throws if delegated mode is requested but no owner token is available.
+ */
+async function resolveSyncToken(mailbox: Mailbox): Promise<string | undefined> {
+  if (mailbox.syncMode !== "delegated") return undefined;
+
+  if (!mailbox.ownerUserId) {
+    throw new Error(
+      "Mailbox is set to delegated sync but has no ownerUserId. Assign an owner first."
+    );
+  }
+
+  const user = await storage.getUser(mailbox.ownerUserId);
+  if (!user) {
+    throw new Error(`Owner user ${mailbox.ownerUserId} not found.`);
+  }
+
+  if (!user.msRefreshToken) {
+    throw new Error(
+      `No delegated token stored for ${user.email}. The owner must log in again to grant Mail.Read access.`
+    );
+  }
+
+  const now = Date.now();
+  const expiresAt = user.msTokenExpiresAt ? new Date(user.msTokenExpiresAt).getTime() : 0;
+  const needsRefresh = expiresAt - now < 60_000;
+
+  if (!needsRefresh && user.msAccessToken) {
+    return user.msAccessToken;
+  }
+
+  const config = getOAuthConfig();
+  if (!config) {
+    throw new Error("OAuth not configured — cannot refresh delegated token.");
+  }
+
+  const refreshed = await refreshAccessToken({
+    clientId: config.clientId,
+    clientSecret: config.clientSecret,
+    tenantId: config.tenantId,
+    refreshToken: user.msRefreshToken,
+  });
+
+  await storage.updateUserTokens(user.id, {
+    msAccessToken: refreshed.access_token,
+    msRefreshToken: refreshed.refresh_token ?? user.msRefreshToken,
+    msTokenExpiresAt: new Date(now + refreshed.expires_in * 1000),
+  });
+
+  return refreshed.access_token;
 }
 
 export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
@@ -48,27 +107,37 @@ export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
     return result;
   }
 
+  let syncToken: string | undefined;
+  try {
+    syncToken = await resolveSyncToken(mailbox);
+  } catch (err: any) {
+    result.errors.push(`Token resolution failed: ${err.message}`);
+    return result;
+  }
+
   let graphMessages: GraphMessage[];
   try {
-    graphMessages = await fetchMailboxMessages(mailbox.microsoftMailboxId, { top: 100 });
+    graphMessages = await fetchMailboxMessages(mailbox.microsoftMailboxId, {
+      top: 100,
+      token: syncToken,
+    });
   } catch (err: any) {
     result.errors.push(`Graph fetch failed: ${err.message}`);
     return result;
   }
 
-  // Group messages by conversationId
-  const byConversation = new Map<string, GraphMessage[]>();
+  const byConversation: Record<string, GraphMessage[]> = {};
   for (const msg of graphMessages) {
     const key = msg.conversationId || msg.id;
-    if (!byConversation.has(key)) byConversation.set(key, []);
-    byConversation.get(key)!.push(msg);
+    if (!byConversation[key]) byConversation[key] = [];
+    byConversation[key].push(msg);
   }
 
-  for (const [conversationId, convMessages] of byConversation) {
+  for (const conversationId of Object.keys(byConversation)) {
+    const convMessages = byConversation[conversationId];
     try {
-      // Sort ascending so first = oldest
       convMessages.sort(
-        (a, b) =>
+        (a: GraphMessage, b: GraphMessage) =>
           new Date(a.receivedDateTime).getTime() -
           new Date(b.receivedDateTime).getTime()
       );
@@ -77,7 +146,6 @@ export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
       const subject = newest.subject || "(no subject)";
       const lastMessageAt = new Date(newest.receivedDateTime);
 
-      // Upsert thread
       const existingThread = await db
         .select()
         .from(emailThreads)
@@ -109,7 +177,6 @@ export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
         result.threadsUpserted++;
       }
 
-      // Upsert each message
       for (const gMsg of convMessages) {
         const existing = await db
           .select()
@@ -117,7 +184,7 @@ export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
           .where(eq(messagesTable.microsoftMessageId, gMsg.id))
           .limit(1);
 
-        const recipients = gMsg.toRecipients.map((r) => r.emailAddress.address);
+        const recipients = gMsg.toRecipients.map((r: any) => r.emailAddress.address);
         const bodyText =
           gMsg.body.contentType === "text" ? gMsg.body.content : undefined;
         const bodyHtml =
@@ -129,10 +196,7 @@ export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
           messageId = existing[0].id;
           await db
             .update(messagesTable)
-            .set({
-              isRead: gMsg.isRead,
-              updatedAt: now,
-            })
+            .set({ isRead: gMsg.isRead, updatedAt: now })
             .where(eq(messagesTable.id, messageId));
         } else {
           const [newMsg] = await db
@@ -156,12 +220,12 @@ export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
           messageId = newMsg.id;
           result.messagesUpserted++;
 
-          // Sync attachment metadata
           if (gMsg.hasAttachments) {
             try {
               const graphAttachments = await fetchMessageAttachments(
                 mailbox.microsoftMailboxId!,
-                gMsg.id
+                gMsg.id,
+                syncToken
               );
               for (const att of graphAttachments) {
                 await db

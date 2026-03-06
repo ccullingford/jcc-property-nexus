@@ -10,6 +10,9 @@ export const users = pgTable("users", {
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
   role: text("role").notNull().default("staff"),
+  msAccessToken: text("ms_access_token"),
+  msRefreshToken: text("ms_refresh_token"),
+  msTokenExpiresAt: timestamp("ms_token_expires_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -24,6 +27,8 @@ export const mailboxes = pgTable("mailboxes", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   type: text("type").notNull(),
+  syncMode: text("sync_mode").notNull().default("application"),
+  ownerUserId: integer("owner_user_id").references(() => users.id),
   microsoftMailboxId: text("microsoft_mailbox_id"),
   isDefault: boolean("is_default").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
