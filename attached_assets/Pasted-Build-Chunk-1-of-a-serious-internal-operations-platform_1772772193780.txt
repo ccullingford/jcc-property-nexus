@@ -1,0 +1,230 @@
+Build Chunk 1 of a serious internal operations platform for property management.
+
+This chunk is ONLY for the foundation and app skeleton. Do not try to build inbox workflows, CRM, telephony, AI, or advanced features yet.
+
+## Required stack
+Use exactly this stack:
+- Frontend: React
+- Backend: Node.js
+- Database: Postgres
+
+Preferred implementation:
+- React frontend with a clean component structure
+- Node.js backend with clear API/service separation
+- Postgres with migrations
+- Keep architecture portable and not dependent on Replit-specific app logic
+
+## Goal of Chunk 1
+Create the core application foundation so future chunks can be built cleanly on top of it.
+
+This chunk must deliver:
+1. Microsoft authentication scaffold
+2. user management foundation
+3. mailbox configuration foundation
+4. app shell / navigation layout
+5. Postgres schema + migrations
+6. backend API skeleton
+7. environment variable / secrets setup
+8. basic role model
+
+The result should be a real working application foundation, not a mockup.
+
+## Important constraints
+- Do NOT build fake demo-only pages
+- Do NOT use static JSON as the main data store
+- Do NOT skip the backend
+- Do NOT collapse everything into a frontend-only app
+- Do NOT use SQLite or any DB other than Postgres
+- Do NOT replace React with another frontend framework
+- Do NOT replace Node.js with another backend language/framework
+- Keep the frontend and backend logically separated even if hosted together
+- Create clean folder structure for future growth
+
+## Architecture requirements
+The app must be structured as a real production-style application.
+
+### Frontend
+Use React for the frontend.
+
+Frontend should include:
+- app shell layout
+- left sidebar navigation
+- top header
+- placeholder routes/pages for:
+  - Inbox
+  - Tasks
+  - Issues
+  - Contacts
+  - Properties
+  - Calls
+  - Admin
+
+Frontend should also include:
+- authentication-aware routing
+- loading state
+- signed-in user state
+- reusable layout/components
+- simple but clean styling
+- no fake business data except minimal placeholders when necessary
+
+### Backend
+Use Node.js for the backend.
+
+Backend should include:
+- clear route/controller/service structure
+- health check endpoint
+- auth-related endpoints or scaffold
+- user endpoints
+- mailbox endpoints
+- config bootstrap endpoints as needed for foundation
+
+Create backend modules/services such as:
+- authService
+- userService
+- mailboxService
+
+Do not build business logic for later chunks yet, but structure the backend so future services can be added cleanly.
+
+### Database
+Use Postgres.
+
+Set up:
+- connection configuration
+- migration system
+- initial schema
+- seed support only if necessary for setup
+
+Create the following initial tables:
+
+#### users
+Fields:
+- id
+- name
+- email
+- role
+- created_at
+- updated_at
+
+#### mailboxes
+Fields:
+- id
+- name
+- type
+- microsoft_mailbox_id
+- is_default
+- created_at
+- updated_at
+
+#### user_mailboxes
+Fields:
+- id
+- user_id
+- mailbox_id
+- access_type
+- created_at
+
+Use proper keys and relationships.
+
+## Authentication requirements
+Prepare the system for Microsoft authentication.
+
+For this chunk:
+- implement Microsoft OAuth scaffold or a clearly structured authentication foundation
+- support login/logout flow foundation
+- persist authenticated user in Postgres
+- support role field on user
+
+Roles to support:
+- admin
+- manager
+- staff
+
+It is acceptable in Chunk 1 for some Microsoft Graph behavior to be scaffolded rather than fully completed, but the authentication architecture must be real and ready for expansion.
+
+## Mailbox foundation requirements
+Build the mailbox configuration foundation only.
+
+Support:
+- mailbox records in Postgres
+- mailbox type field with values like shared and personal
+- ability to mark a mailbox as default
+- admin-facing placeholder screen to manage mailbox records later
+
+Do not build thread sync or inbox reading yet.
+
+## UI requirements
+Build a clean application shell that feels like the start of a serious internal tool.
+
+### Main layout
+Use a layout like:
+- left sidebar
+- main content area
+- top header
+
+### Sidebar items
+Include:
+- Inbox
+- Tasks
+- Issues
+- Contacts
+- Properties
+- Calls
+- Admin
+
+### Header
+Show:
+- app name
+- signed-in user
+- sign out action
+
+### Pages
+Each page can be a clean placeholder for now, but it must use real routing and the shared layout.
+
+## Code quality requirements
+- Use TypeScript if possible across frontend and backend
+- Use environment variables for secrets/config
+- Add clear README/setup instructions
+- Use migrations, not ad hoc schema creation
+- Use clean naming
+- Keep code modular
+- Add comments only where helpful
+- Avoid overengineering, but do not make it toy-like
+
+## Replit-specific guidance
+This app will be built on Replit, but do not make the architecture dependent on Replit-specific business logic.
+Use Replit only as the host/deployment environment.
+
+## Definition of done
+Chunk 1 is complete when:
+1. the app runs successfully
+2. a user can sign in through the authentication foundation
+3. user data persists in Postgres
+4. the app shell renders with sidebar and header
+5. all placeholder routes/pages work
+6. Postgres migrations exist and are runnable
+7. mailbox records can be stored and retrieved through backend APIs
+8. the codebase is organized for future chunks
+
+## Deliverables
+Produce:
+- full project structure
+- frontend code
+- backend code
+- Postgres migration files
+- environment variable examples
+- README with setup/run instructions
+- brief explanation of architecture decisions
+
+## Future chunks will add
+Do not build these yet, but keep the architecture ready for them:
+- shared inbox thread sync
+- email read/reply
+- internal notes
+- tasks
+- contacts
+- issues/cases
+- property/unit linking
+- RingEX call pop
+- AI hooks
+
+Again: this chunk is only the foundation and skeleton. Build it as a real app foundation, not a mockup.
