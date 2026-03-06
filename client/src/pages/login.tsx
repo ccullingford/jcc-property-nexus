@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useQuery } from "@tanstack/react-query";
-import { AlertCircle, Loader2, ShieldCheck } from "lucide-react";
+import { AlertCircle, Loader2 } from "lucide-react";
+import jccLogo from "@assets/Color_logo_with_background_1772831996871.png";
 
 function MicrosoftLogo({ className }: { className?: string }) {
   return (
@@ -55,11 +56,11 @@ export function Login() {
         <div className="mx-auto w-full max-w-sm lg:w-[360px]">
           {/* Brand */}
           <div className="mb-10">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="h-8 w-8 rounded-lg bg-primary flex items-center justify-center">
-                <ShieldCheck className="h-4 w-4 text-primary-foreground" />
-              </div>
-              <span className="text-sm font-semibold text-muted-foreground tracking-wide uppercase">PropOps</span>
+            <div className="mb-6">
+              <img src={jccLogo} alt="JCC Property Group" className="h-16 w-auto object-contain" />
+            </div>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-lg font-bold text-foreground tracking-widest uppercase">NEXUS</span>
             </div>
             <h2 className="text-3xl font-display font-bold leading-9 tracking-tight text-foreground">
               Welcome back
