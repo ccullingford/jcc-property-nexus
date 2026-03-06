@@ -210,7 +210,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       req.session.userId = user.id;
       req.session.userRole = user.role;
 
-      console.log(`[auth] User signed in: ${email} (${user.role})`);
       return res.redirect("/inbox");
     } catch (err: any) {
       console.error("[auth] OAuth callback error:", err.message);
