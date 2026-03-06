@@ -17,10 +17,11 @@ import {
   Users, Search, Plus, Phone, Mail, Link2, MessageSquare,
   CheckCircle2, Clock, X, ChevronRight, Upload, Filter,
   GitMerge, AlertTriangle, ChevronDown, ChevronUp, Briefcase,
-  ArrowRight,
+  ArrowRight, MapPin, Building2, Pencil,
 } from "lucide-react";
 import type { ContactWithDetails, ContactTimelineItem, IssueWithDetails, TaskWithMeta } from "@shared/routes";
 import { CONTACT_TYPES } from "@shared/routes";
+import type { Association, Unit } from "@shared/schema";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface DuplicatePair {
@@ -106,6 +107,17 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [primaryEmail, setPrimaryEmail] = useState("");
   const [primaryPhone, setPrimaryPhone] = useState("");
   const [notes, setNotes] = useState("");
+  const [associationId, setAssociationId] = useState<string>("none");
+  const [unitId, setUnitId] = useState<string>("none");
+
+  const { data: associations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()) });
+  const { data: assocUnits = [] } = useQuery<Unit[]>({
+    queryKey: ["/api/associations", associationId, "units"],
+    queryFn: () => fetch(`/api/associations/${associationId}/units`).then(r => r.json()),
+    enabled: associationId !== "none",
+  });
+
+  function handleAssocChange(val: string) { setAssociationId(val); setUnitId("none"); }
 
   const mutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiRequest("POST", "/api/contacts", data),
@@ -113,10 +125,22 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
       toast({ title: "Contact created" });
       onClose();
-      setDisplayName(""); setContactType("Other"); setPrimaryEmail(""); setPrimaryPhone(""); setNotes("");
+      setDisplayName(""); setContactType("Other"); setPrimaryEmail(""); setPrimaryPhone(""); setNotes(""); setAssociationId("none"); setUnitId("none");
     },
     onError: (e: Error) => toast({ title: "Failed to create contact", description: e.message, variant: "destructive" }),
   });
+
+  function handleSubmit() {
+    mutation.mutate({
+      displayName: displayName.trim(),
+      contactType,
+      primaryEmail: primaryEmail.trim() || null,
+      primaryPhone: primaryPhone.trim() || null,
+      notes: notes.trim() || null,
+      associationId: associationId !== "none" ? Number(associationId) : null,
+      unitId: unitId !== "none" ? Number(unitId) : null,
+    });
+  }
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -125,7 +149,7 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
         <div className="space-y-3 py-1">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Full name *</label>
-            <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jane Smith" data-testid="input-contact-name" autoFocus onKeyDown={e => e.key === "Enter" && !mutation.isPending && displayName.trim() && mutation.mutate({ displayName: displayName.trim(), contactType, primaryEmail: primaryEmail.trim() || null, primaryPhone: primaryPhone.trim() || null, notes: notes.trim() || null })} />
+            <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jane Smith" data-testid="input-contact-name" autoFocus />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
@@ -144,6 +168,28 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
               <Input value={primaryPhone} onChange={e => setPrimaryPhone(e.target.value)} placeholder="+1 (555) 000-0000" data-testid="input-contact-phone" />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Association</label>
+              <Select value={associationId} onValueChange={handleAssocChange}>
+                <SelectTrigger className="h-9" data-testid="select-contact-association"><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {associations.map(a => <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Unit</label>
+              <Select value={unitId} onValueChange={setUnitId} disabled={associationId === "none"}>
+                <SelectTrigger className="h-9" data-testid="select-contact-unit"><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {assocUnits.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.unitNumber}{u.building ? ` (${u.building})` : ""}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Notes</label>
             <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="text-sm resize-none" data-testid="input-contact-notes" />
@@ -151,7 +197,7 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose} data-testid="button-cancel-contact">Cancel</Button>
-          <Button size="sm" onClick={() => mutation.mutate({ displayName: displayName.trim(), contactType, primaryEmail: primaryEmail.trim() || null, primaryPhone: primaryPhone.trim() || null, notes: notes.trim() || null })} disabled={!displayName.trim() || mutation.isPending} data-testid="button-submit-contact">
+          <Button size="sm" onClick={handleSubmit} disabled={!displayName.trim() || mutation.isPending} data-testid="button-submit-contact">
             {mutation.isPending ? "Creating…" : "Create Contact"}
           </Button>
         </DialogFooter>
@@ -474,6 +520,95 @@ function ContactCard({ contact }: { contact: DuplicatePair["contact"] }) {
   );
 }
 
+// ─── Contact Association Section ──────────────────────────────────────────────
+function ContactAssociationSection({
+  associationId, unitId, onUpdate,
+}: { associationId: number | null; unitId: number | null; onUpdate: (aid: number | null, uid: number | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [selAssocId, setSelAssocId] = useState<string>(associationId?.toString() ?? "none");
+  const [selUnitId, setSelUnitId] = useState<string>(unitId?.toString() ?? "none");
+
+  const { data: associations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()), enabled: editing });
+  const { data: assocDetail } = useQuery<{ name: string }>({
+    queryKey: ["/api/associations", associationId],
+    queryFn: () => fetch(`/api/associations/${associationId}`).then(r => r.json()),
+    enabled: !!associationId && !editing,
+  });
+  const { data: assocUnits = [] } = useQuery<Unit[]>({
+    queryKey: ["/api/associations", selAssocId, "units"],
+    queryFn: () => fetch(`/api/associations/${selAssocId}/units`).then(r => r.json()),
+    enabled: editing && selAssocId !== "none",
+  });
+  const { data: unitDetail } = useQuery<{ unitNumber: string; building: string | null }>({
+    queryKey: ["/api/units", unitId],
+    queryFn: () => fetch(`/api/units/${unitId}`).then(r => r.json()),
+    enabled: !!unitId && !editing,
+  });
+
+  function handleAssocChange(val: string) { setSelAssocId(val); setSelUnitId("none"); }
+
+  function handleSave() {
+    onUpdate(selAssocId !== "none" ? Number(selAssocId) : null, selUnitId !== "none" ? Number(selUnitId) : null);
+    setEditing(false);
+  }
+
+  function handleEdit() {
+    setSelAssocId(associationId?.toString() ?? "none");
+    setSelUnitId(unitId?.toString() ?? "none");
+    setEditing(true);
+  }
+
+  return (
+    <section data-testid="contact-association-section">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Building2 className="h-3.5 w-3.5" />Association
+        </p>
+        {!editing && <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleEdit} data-testid="button-edit-association"><Pencil className="h-3 w-3 mr-0.5" />Edit</Button>}
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <Select value={selAssocId} onValueChange={handleAssocChange}>
+            <SelectTrigger className="h-8 text-xs" data-testid="select-detail-association"><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {associations.map(a => <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={selUnitId} onValueChange={setSelUnitId} disabled={selAssocId === "none"}>
+            <SelectTrigger className="h-8 text-xs" data-testid="select-detail-unit"><SelectValue placeholder="No unit" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No unit</SelectItem>
+              {assocUnits.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.unitNumber}{u.building ? ` (${u.building})` : ""}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <div className="flex gap-2">
+            <Button size="sm" className="h-7 text-xs" onClick={handleSave} data-testid="button-save-association">Save</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(false)}>Cancel</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm space-y-1" data-testid="association-display">
+          {associationId && assocDetail ? (
+            <div className="flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span data-testid="text-assoc-display">{assocDetail.name}</span>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground" data-testid="text-no-association">No association linked.</p>
+          )}
+          {unitId && unitDetail && (
+            <div className="flex items-center gap-1.5 pl-1">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs" data-testid="text-unit-display">Unit {unitDetail.unitNumber}{unitDetail.building ? ` · ${unitDetail.building}` : ""}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ─── Contact Detail Panel ─────────────────────────────────────────────────────
 function ContactDetail({ contactId }: { contactId: number }) {
   const { toast } = useToast();
@@ -638,6 +773,14 @@ function ContactDetail({ contactId }: { contactId: number }) {
             </>
           )}
 
+          {/* Association & Unit */}
+          <Separator />
+          <ContactAssociationSection
+            associationId={contact.associationId ?? null}
+            unitId={contact.unitId ?? null}
+            onUpdate={(aid, uid) => updateMutation.mutate({ associationId: aid, unitId: uid })}
+          />
+
           {/* Linked Issues */}
           {linkedIssues && linkedIssues.length > 0 && (
             <>
@@ -738,8 +881,11 @@ export function ContactsPage() {
   const [filterType, setFilterType] = useState("all");
   const [filterHasThreads, setFilterHasThreads] = useState(false);
   const [filterHasOpenIssues, setFilterHasOpenIssues] = useState(false);
+  const [filterAssocId, setFilterAssocId] = useState<string>("all");
 
-  const activeFilterCount = [filterType !== "all", filterHasThreads, filterHasOpenIssues].filter(Boolean).length;
+  const { data: filterAssociations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()), enabled: filtersOpen });
+
+  const activeFilterCount = [filterType !== "all", filterHasThreads, filterHasOpenIssues, filterAssocId !== "all"].filter(Boolean).length;
 
   const buildUrl = () => {
     const params = new URLSearchParams();
@@ -747,11 +893,12 @@ export function ContactsPage() {
     if (filterType !== "all") params.set("contactType", filterType);
     if (filterHasThreads) params.set("hasThreads", "true");
     if (filterHasOpenIssues) params.set("hasOpenIssues", "true");
+    if (filterAssocId !== "all") params.set("associationId", filterAssocId);
     return `/api/contacts?${params.toString()}`;
   };
 
   const { data: contacts, isLoading } = useQuery<ContactWithDetails[]>({
-    queryKey: ["/api/contacts", searchQuery, filterType, filterHasThreads, filterHasOpenIssues],
+    queryKey: ["/api/contacts", searchQuery, filterType, filterHasThreads, filterHasOpenIssues, filterAssocId],
     queryFn: async () => {
       const res = await fetch(buildUrl(), { credentials: "include" });
       if (!res.ok) throw new Error(res.statusText);
@@ -830,8 +977,18 @@ export function ContactsPage() {
               <label className="text-xs text-foreground cursor-pointer" htmlFor="filter-has-issues">Has open issues</label>
               <Switch id="filter-has-issues" checked={filterHasOpenIssues} onCheckedChange={setFilterHasOpenIssues} data-testid="filter-has-open-issues" />
             </div>
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Association</label>
+              <Select value={filterAssocId} onValueChange={setFilterAssocId}>
+                <SelectTrigger className="h-7 text-xs" data-testid="filter-association"><SelectValue placeholder="All associations" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All associations</SelectItem>
+                  {filterAssociations.map(a => <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             {activeFilterCount > 0 && (
-              <button className="text-xs text-primary hover:underline" onClick={() => { setFilterType("all"); setFilterHasThreads(false); setFilterHasOpenIssues(false); }} data-testid="button-clear-contact-filters">
+              <button className="text-xs text-primary hover:underline" onClick={() => { setFilterType("all"); setFilterHasThreads(false); setFilterHasOpenIssues(false); setFilterAssocId("all"); }} data-testid="button-clear-contact-filters">
                 Clear filters
               </button>
             )}

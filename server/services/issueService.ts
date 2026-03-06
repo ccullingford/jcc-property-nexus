@@ -43,13 +43,15 @@ async function enrichIssue(issue: typeof issues.$inferSelect): Promise<IssueWith
 }
 
 export async function createIssue(
-  data: { title: string; description?: string | null; contactId?: number | null; assignedUserId?: number | null; priority?: string; status?: string },
+  data: { title: string; description?: string | null; contactId?: number | null; assignedUserId?: number | null; priority?: string; status?: string; associationId?: number | null; unitId?: number | null },
   userId?: number,
 ): Promise<IssueWithDetails> {
   const [issue] = await db.insert(issues).values({
     title: data.title,
     description: data.description ?? null,
     contactId: data.contactId ?? null,
+    associationId: data.associationId ?? null,
+    unitId: data.unitId ?? null,
     assignedUserId: data.assignedUserId ?? null,
     createdByUserId: userId ?? null,
     priority: data.priority ?? 'Normal',
@@ -69,7 +71,7 @@ export async function createIssue(
 
 export async function updateIssue(
   id: number,
-  updates: Partial<{ title: string; description: string | null; contactId: number | null; assignedUserId: number | null; priority: string; status: string }>,
+  updates: Partial<{ title: string; description: string | null; contactId: number | null; assignedUserId: number | null; priority: string; status: string; associationId: number | null; unitId: number | null }>,
   userId?: number,
 ): Promise<IssueWithDetails | null> {
   const [current] = await db.select().from(issues).where(eq(issues.id, id));

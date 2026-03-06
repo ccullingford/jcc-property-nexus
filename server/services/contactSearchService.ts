@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { contacts, contactEmails, contactPhones, threadContacts, issues } from "@shared/schema";
 import { eq, ilike, or, inArray, and, ne, sql } from "drizzle-orm";
+
 import type { ContactWithDetails } from "@shared/routes";
 
 export interface ContactFilters {
@@ -8,6 +9,7 @@ export interface ContactFilters {
   contactType?: string;
   hasThreads?: boolean;
   hasOpenIssues?: boolean;
+  associationId?: number;
 }
 
 async function enrichContacts(rows: typeof contacts.$inferSelect[]): Promise<ContactWithDetails[]> {
@@ -101,6 +103,11 @@ export async function searchContacts(queryOrFilters?: string | ContactFilters): 
       ));
     const issueSet = new Set(issueRows.map(r => r.contactId).filter(Boolean) as number[]);
     rows = rows.filter(c => issueSet.has(c.id));
+  }
+
+  // Apply associationId filter
+  if (filters.associationId) {
+    rows = rows.filter(c => c.associationId === filters.associationId);
   }
 
   return enrichContacts(rows);

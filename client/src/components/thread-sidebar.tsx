@@ -15,7 +15,7 @@ import {
   UserCheck, UserX, User, MessageSquare, Activity,
   Send, ChevronRight, CheckSquare, Plus, Circle,
   CheckCircle2, XCircle, Clock, AlertTriangle, Calendar,
-  Users, Search, Link2, Unlink, X, AlertCircle,
+  Users, Search, Link2, Unlink, X, AlertCircle, Building2, MapPin,
 } from "lucide-react";
 import type { User as UserType } from "@shared/schema";
 import type { NoteWithUser, ActivityWithUser, TaskWithMeta, ContactWithDetails, ThreadContactWithContact, IssueWithDetails } from "@shared/routes";
@@ -282,6 +282,35 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+// ─── Association Context Row ──────────────────────────────────────────────────
+
+function AssociationContextRow({ associationId, unitId }: { associationId: number; unitId: number | null }) {
+  const { data: assoc } = useQuery<{ name: string }>({
+    queryKey: ["/api/associations", associationId],
+    queryFn: () => fetch(`/api/associations/${associationId}`).then(r => r.json()),
+  });
+  const { data: unit } = useQuery<{ unitNumber: string; building: string | null }>({
+    queryKey: ["/api/units", unitId],
+    queryFn: () => fetch(`/api/units/${unitId}`).then(r => r.json()),
+    enabled: !!unitId,
+  });
+
+  return (
+    <div className="space-y-0.5" data-testid={`assoc-context-${associationId}`}>
+      <div className="flex items-center gap-1.5">
+        <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="text-xs text-foreground font-medium">{assoc?.name ?? "Loading…"}</span>
+      </div>
+      {unit && (
+        <div className="flex items-center gap-1.5 pl-1">
+          <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="text-xs text-muted-foreground">Unit {unit.unitNumber}{unit.building ? ` · ${unit.building}` : ""}</span>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -685,6 +714,41 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
             </DialogContent>
           </Dialog>
         </section>
+
+        {/* ─── Association Context ────────────────────────────────────── */}
+        {(() => {
+          const seenIds = new Set<number>();
+          const contexts: Array<{ associationId: number; unitId: number | null }> = [];
+          for (const tc of (threadContacts ?? [])) {
+            if (tc.contact.associationId && !seenIds.has(tc.contact.associationId)) {
+              seenIds.add(tc.contact.associationId);
+              contexts.push({ associationId: tc.contact.associationId, unitId: tc.contact.unitId ?? null });
+            }
+          }
+          for (const issue of (threadIssues ?? [])) {
+            if (issue.associationId && !seenIds.has(issue.associationId)) {
+              seenIds.add(issue.associationId);
+              contexts.push({ associationId: issue.associationId, unitId: issue.unitId ?? null });
+            }
+          }
+          if (contexts.length === 0) return null;
+          return (
+            <>
+              <Separator />
+              <section data-testid="thread-association-context">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5" />
+                  Property Context
+                </p>
+                <div className="space-y-2">
+                  {contexts.map(ctx => (
+                    <AssociationContextRow key={ctx.associationId} associationId={ctx.associationId} unitId={ctx.unitId} />
+                  ))}
+                </div>
+              </section>
+            </>
+          );
+        })()}
 
         <Separator />
 

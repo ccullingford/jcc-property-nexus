@@ -13,8 +13,8 @@ import { InboxPage } from "@/pages/inbox";
 import { TasksPage } from "@/pages/tasks";
 import { ContactsPage } from "@/pages/contacts";
 import { IssuesPage } from "@/pages/issues";
+import { AssociationsPage } from "@/pages/associations";
 import {
-  PropertiesPage,
   CallsPage,
 } from "@/pages/placeholders";
 
@@ -44,7 +44,8 @@ function Router() {
       <Route path="/tasks"><ProtectedRoute component={TasksPage} /></Route>
       <Route path="/issues"><ProtectedRoute component={IssuesPage} /></Route>
       <Route path="/contacts"><ProtectedRoute component={ContactsPage} /></Route>
-      <Route path="/properties"><ProtectedRoute component={PropertiesPage} /></Route>
+      <Route path="/associations"><ProtectedRoute component={AssociationsPage} /></Route>
+      <Route path="/properties"><Redirect to="/associations" /></Route>
       <Route path="/calls"><ProtectedRoute component={CallsPage} /></Route>
       <Route path="/admin"><ProtectedRoute component={Admin} /></Route>
       <Route component={NotFound} />

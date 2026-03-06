@@ -28,7 +28,7 @@ const navItems = [
   { title: "Tasks", url: "/tasks", icon: CheckSquare },
   { title: "Issues", url: "/issues", icon: AlertCircle },
   { title: "Contacts", url: "/contacts", icon: Users },
-  { title: "Properties", url: "/properties", icon: Building2 },
+  { title: "Associations", url: "/associations", icon: Building2 },
   { title: "Calls", url: "/calls", icon: Phone },
   { title: "Admin", url: "/admin", icon: Settings },
 ];

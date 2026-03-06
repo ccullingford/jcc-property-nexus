@@ -25,6 +25,8 @@ import { findDuplicates, mergeContacts } from "./services/contactMergeService";
 import { getContactTimeline } from "./services/contactTimelineService";
 import { createIssue as createIssueService, updateIssue as updateIssueService, getIssueWithDetails } from "./services/issueService";
 import { listIssues } from "./services/issueQueryService";
+import { listAssociations, getAssociation, getAssociationUnits, createAssociation, updateAssociation } from "./services/associationService";
+import { listUnits, getUnit, createUnit, updateUnit } from "./services/unitService";
 import { linkIssueThread, unlinkIssueThread, linkIssueTask, unlinkIssueTask, getIssueThreads, getIssueTasks, getThreadIssues } from "./services/issueLinkService";
 import { getIssueTimeline } from "./services/issueTimelineService";
 import { getNotesByIssueWithUsers } from "./services/threadWorkflowService";
@@ -576,6 +578,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         contactType: typeof req.query.contactType === "string" ? req.query.contactType : undefined,
         hasThreads: req.query.hasThreads === "true" ? true : undefined,
         hasOpenIssues: req.query.hasOpenIssues === "true" ? true : undefined,
+        associationId: typeof req.query.associationId === "string" ? Number(req.query.associationId) : undefined,
       };
       res.json(await searchContacts(filters));
     } catch (err) {
@@ -736,16 +739,113 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ─── Associations ─────────────────────────────────────────────────────────
+  app.get("/api/associations", async (req, res) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : undefined;
+      const isActive = req.query.isActive === "true" ? true : req.query.isActive === "false" ? false : undefined;
+      res.json(await listAssociations({ q, isActive }));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/associations", requireAuth, async (req, res) => {
+    try {
+      const { name, code, mailboxId, addressLine1, addressLine2, city, state, postalCode, notes, isActive } = req.body;
+      if (!name) return res.status(400).json({ message: "name is required" });
+      const assoc = await createAssociation({ name, code, mailboxId, addressLine1, addressLine2, city, state, postalCode, notes, isActive });
+      res.status(201).json(assoc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/associations/:id", async (req, res) => {
+    try {
+      const assoc = await getAssociation(Number(req.params.id));
+      if (!assoc) return res.status(404).json({ message: "Association not found" });
+      res.json(assoc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/associations/:id", requireAuth, async (req, res) => {
+    try {
+      const { name, code, mailboxId, addressLine1, addressLine2, city, state, postalCode, notes, isActive } = req.body;
+      const assoc = await updateAssociation(Number(req.params.id), { name, code, mailboxId, addressLine1, addressLine2, city, state, postalCode, notes, isActive });
+      if (!assoc) return res.status(404).json({ message: "Association not found" });
+      res.json(assoc);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/associations/:id/units", async (req, res) => {
+    try {
+      const unitRows = await getAssociationUnits(Number(req.params.id));
+      res.json(unitRows);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Units ────────────────────────────────────────────────────────────────
+  app.get("/api/units", async (req, res) => {
+    try {
+      const associationId = typeof req.query.associationId === "string" ? Number(req.query.associationId) : undefined;
+      const q = typeof req.query.q === "string" ? req.query.q : undefined;
+      res.json(await listUnits({ associationId, q }));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/units", requireAuth, async (req, res) => {
+    try {
+      const { associationId, unitNumber, building, streetAddress, notes, isActive } = req.body;
+      if (!associationId) return res.status(400).json({ message: "associationId is required" });
+      if (!unitNumber) return res.status(400).json({ message: "unitNumber is required" });
+      const unit = await createUnit({ associationId, unitNumber, building, streetAddress, notes, isActive });
+      res.status(201).json(unit);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/units/:id", async (req, res) => {
+    try {
+      const unit = await getUnit(Number(req.params.id));
+      if (!unit) return res.status(404).json({ message: "Unit not found" });
+      res.json(unit);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/units/:id", requireAuth, async (req, res) => {
+    try {
+      const { associationId, unitNumber, building, streetAddress, notes, isActive } = req.body;
+      const unit = await updateUnit(Number(req.params.id), { associationId, unitNumber, building, streetAddress, notes, isActive });
+      if (!unit) return res.status(404).json({ message: "Unit not found" });
+      res.json(unit);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message });
+    }
+  });
+
   // ─── Issues ───────────────────────────────────────────────────────────────
   app.get(api.issues.list.path, async (req, res) => {
     try {
-      const { status, priority, openOnly, closedOnly, contactId } = req.query;
+      const { status, priority, openOnly, closedOnly, contactId, associationId } = req.query;
       const results = await listIssues({
         status: typeof status === 'string' ? status : undefined,
         priority: typeof priority === 'string' ? priority : undefined,
         openOnly: openOnly === 'true',
         closedOnly: closedOnly === 'true',
         contactId: typeof contactId === 'string' ? Number(contactId) : undefined,
+        associationId: typeof associationId === 'string' ? Number(associationId) : undefined,
       });
       res.json(results);
     } catch (err: any) {
@@ -765,10 +865,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post(api.issues.create.path, async (req, res) => {
     try {
-      const { title, description, contactId, assignedUserId, priority, status } = req.body;
+      const { title, description, contactId, assignedUserId, priority, status, associationId, unitId } = req.body;
       if (!title) return res.status(400).json({ message: "title is required" });
       const issue = await createIssueService(
-        { title, description, contactId, assignedUserId, priority, status },
+        { title, description, contactId, assignedUserId, priority, status, associationId, unitId },
         req.session.userId,
       );
       res.status(201).json(issue);

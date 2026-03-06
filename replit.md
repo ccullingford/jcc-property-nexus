@@ -27,7 +27,7 @@ server/
     threadWorkflowService.ts  # Thread workflow: claim, assign, unassign, status change, notes, activity
     taskService.ts            # Task creation, update, assignment, status changes with activity logging
     contactIdentityService.ts # Email normalization, phone normalization, findContactByEmail/Phone
-    contactSearchService.ts   # searchContacts(query, filters: contactType?, hasThreads?, hasOpenIssues?); getContactWithDetails(id)
+    contactSearchService.ts   # searchContacts(query, filters: contactType?, hasThreads?, hasOpenIssues?, associationId?); getContactWithDetails(id)
     contactTimelineService.ts # getContactTimeline(contactId) aggregating threads, notes, tasks
     contactService.ts         # createContact, updateContact, addContactPhone/Email, linkThreadContact
     contactImportService.ts   # previewImport(rows, mapping) + executeImport(rows, mapping, mode, userId) — CSV bulk import with field mapping, validation, upsert
@@ -35,19 +35,22 @@ server/
     issueService.ts           # createIssue (sets createdByUserId, logs activity), updateIssue, getIssueWithDetails
     issueLinkService.ts       # linkIssueThread, unlinkIssueThread, linkIssueTask, unlinkIssueTask; getIssueThreads, getIssueTasks
     issueTimelineService.ts   # getIssueTimeline(issueId) aggregating threads, tasks, notes, activity log
-    issueQueryService.ts      # listIssues(filters: status?, priority?, openOnly?, contactId?) → IssueWithDetails[]
+    issueQueryService.ts      # listIssues(filters: status?, priority?, openOnly?, contactId?, associationId?) → IssueWithDetails[]
+    associationService.ts     # listAssociations, getAssociation, createAssociation, updateAssociation — HOA-level entities
+    unitService.ts            # listUnits, getUnit, createUnit, updateUnit — units linked to associations
 client/src/
   App.tsx         # Router, ProtectedRoute, LoginPage wrapper
   components/
     layout.tsx    # 3-panel workspace layout (sidebar | main | context panel)
-    thread-sidebar.tsx  # Thread context panel: contact, ownership, status, tasks, notes, activity, issues
+    thread-sidebar.tsx  # Thread context panel: contact, ownership, status, tasks, notes, activity, issues; auto-derives Property Context from linked contacts/issues associationId
   pages/
     login.tsx     # Microsoft OAuth login page
     admin.tsx     # Mailbox management
     inbox.tsx     # Three-pane inbox: thread list (search + filter panel) | message view (reply/compose, unknown contact banner with Create/Link Existing/Ignore) | thread sidebar; auto-refreshes every 60s
     tasks.tsx     # Task dashboard with My/Team/Overdue tabs + Create/Edit Task dialogs
-    contacts.tsx  # Two-panel contacts: filter bar (type, has threads, has issues) + Import (CSV wizard) + Duplicates review | detail with emails/phones/linked issues/tasks/timeline
-    issues.tsx    # Two-panel issues: list with filters | detail with tabs (Overview/Threads/Tasks/Notes/Timeline)
+    contacts.tsx  # Two-panel contacts: filter bar (type, has threads, has issues, association) + Import (CSV wizard) + Duplicates review | detail with emails/phones/linked issues/tasks/timeline + editable Association/Unit section
+    issues.tsx    # Two-panel issues: list with status/priority/association filters | detail with tabs (Overview/Threads/Tasks/Notes/Timeline) + editable Association/Unit section
+    associations.tsx  # Two-panel HOA Associations management: list + detail with units, linked contacts, open issues; create/edit dialogs for associations and units
     placeholders.tsx   # Properties, Calls placeholders
     call-pop.tsx  # RingEX call pop screen (/call-pop?phone=+1...)
   hooks/

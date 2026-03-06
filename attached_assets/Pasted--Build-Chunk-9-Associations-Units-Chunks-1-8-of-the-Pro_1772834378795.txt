@@ -1,0 +1,451 @@
+# Build Chunk 9 — Associations & Units
+
+Chunks 1–8 of the Property Management Operations Platform are already implemented.  
+Do NOT rebuild earlier chunks unless required to support the features below.
+
+Existing architecture:
+
+Frontend: React  
+Backend: Node.js  
+Database: PostgreSQL  
+Email: Microsoft Graph  
+Authentication: Microsoft Entra ID
+
+This chunk focuses on **property context**, specifically **Associations and Units**, so communications, contacts, and issues can be tied to the correct HOA and unit.
+
+---
+
+# Goals of Chunk 9
+
+Add a dedicated property-context layer so the platform can support:
+
+- associations
+- units within associations
+- linking contacts to associations and units
+- linking issues to associations and units
+- showing association/unit context in threads, contacts, and issues
+- searching and filtering by association and unit
+
+This chunk does NOT include:
+
+- RingEX integration
+- AI features
+
+---
+
+# Part 1 — Associations Data Model
+
+Create a new `associations` model.
+
+## Requirements
+
+An association represents an HOA or community.
+
+### associations
+Fields:
+- `id`
+- `name`
+- `code` nullable
+- `mailbox_id` nullable
+- `address_line_1` nullable
+- `address_line_2` nullable
+- `city` nullable
+- `state` nullable
+- `postal_code` nullable
+- `notes` nullable
+- `is_active` boolean default true
+- `created_at`
+- `updated_at`
+
+## Purpose
+This lets the system understand which HOA/community a conversation or issue belongs to.
+
+Examples:
+- Arlyn Circle Condominiums
+- NoDa Landing
+- Candlewood HOA
+
+---
+
+# Part 2 — Units Data Model
+
+Create a new `units` model.
+
+## Requirements
+
+A unit belongs to a specific association.
+
+### units
+Fields:
+- `id`
+- `association_id`
+- `unit_number`
+- `building` nullable
+- `street_address` nullable
+- `notes` nullable
+- `is_active` boolean default true
+- `created_at`
+- `updated_at`
+
+## Constraints
+- `unit_number` should be unique within an `association_id`
+- add indexes for `association_id` and `unit_number`
+
+## Purpose
+This gives precise property context for residents, issues, and communication history.
+
+---
+
+# Part 3 — Contact Association and Unit Linking
+
+Extend the contacts layer so a contact can be connected to an association and optionally a unit.
+
+## Recommended first implementation
+Keep this simple and practical.
+
+### Add to contacts
+Fields:
+- `association_id` nullable
+- `unit_id` nullable
+
+This supports:
+- one primary association per contact
+- one primary unit per contact
+
+That is sufficient for the initial operational workflow.
+
+## Requirements
+- contacts can exist without an association or unit
+- if `unit_id` is set, it must belong to the same `association_id`
+- validate this in backend service logic
+
+## Future flexibility
+Design cleanly so this can later expand to many-to-many relationships if needed, but do not overengineer it now.
+
+---
+
+# Part 4 — Issue Association and Unit Linking
+
+Extend the issues layer so each issue can optionally be connected to an association and unit.
+
+### Add to issues
+Fields:
+- `association_id` nullable
+- `unit_id` nullable
+
+## Requirements
+- issue can exist without association or unit
+- if `unit_id` is set, it must belong to the same `association_id`
+- issue creation/edit UI must support selecting these fields
+
+## Purpose
+This allows issues like:
+- Roof leak — Unit 204
+- Parking dispute — Unit 17B
+- Vendor invoice issue — Association-wide
+
+---
+
+# Part 5 — Thread Context
+
+Add association and unit context to the inbox and thread experience.
+
+## Requirements
+
+A thread may gain association/unit context through:
+- linked contact
+- linked issue
+- manual assignment in future if needed
+
+For this chunk, do not create a separate hard thread-to-association mapping unless needed for clarity. Prefer deriving from linked contact and issue where possible.
+
+## Thread UI should show
+- association name if known
+- unit number if known
+- linked contact
+- linked issue
+
+This context should appear in:
+- thread list where practical
+- thread detail context panel
+
+---
+
+# Part 6 — Association & Unit Management UI
+
+Add dedicated management screens.
+
+## Associations page
+Support:
+- list associations
+- search associations
+- create association
+- edit association
+- view association detail page
+
+Each association row should show:
+- name
+- code if present
+- active/inactive
+- number of units
+- number of linked contacts
+- number of open issues if practical
+
+## Association detail page
+Show:
+- association summary
+- units list
+- linked contacts
+- linked issues
+- recent activity if practical
+
+## Units page / unit management
+Support:
+- create unit
+- edit unit
+- view unit detail
+- search by unit number
+- filter by association
+
+## Unit detail page
+Show:
+- association
+- linked contact if any
+- linked issues
+- recent threads if derivable
+- notes if available
+
+---
+
+# Part 7 — Search and Filtering
+
+Add association/unit-aware search and filtering.
+
+## Inbox filters
+Support filtering by:
+- association
+- unit
+- linked contact
+- linked issue
+
+## Contacts filters
+Support filtering by:
+- association
+- unit
+- contact type
+
+## Issues filters
+Support filtering by:
+- association
+- unit
+- status
+- priority
+
+## Search
+Support searching by:
+- association name
+- unit number
+- contact name
+- issue title
+
+Backend APIs should support real query parameters rather than only frontend filtering.
+
+---
+
+# Part 8 — Association/Unit Selection UX
+
+The selection experience must be clean and easy to use.
+
+## Contact edit/create UI
+Allow:
+- select association
+- then select unit filtered to that association
+
+## Issue create/edit UI
+Allow:
+- select association
+- then optionally select unit within that association
+
+## Validation
+- if association changes, clear invalid unit selection
+- do not allow unit selection without association
+
+---
+
+# Part 9 — Database Migrations
+
+Create migrations for:
+
+### associations
+Fields listed above
+
+### units
+Fields listed above
+
+### contacts
+Add:
+- `association_id`
+- `unit_id`
+
+### issues
+Add:
+- `association_id`
+- `unit_id`
+
+Add foreign keys:
+- `units.association_id -> associations.id`
+- `contacts.association_id -> associations.id`
+- `contacts.unit_id -> units.id`
+- `issues.association_id -> associations.id`
+- `issues.unit_id -> units.id`
+
+Add indexes where helpful for:
+- association lookup
+- unit lookup
+- contact filtering
+- issue filtering
+
+---
+
+# Part 10 — Backend Services
+
+Add or extend services such as:
+
+- `associationService`
+- `unitService`
+- `associationSearchService`
+- `propertyContextService`
+
+## Responsibilities
+
+### associationService
+- create/update associations
+- list associations
+- retrieve association detail
+
+### unitService
+- create/update units
+- list units
+- retrieve unit detail
+- validate unit-association relationship
+
+### associationSearchService
+- search and filter associations/units
+- support contact and issue filtering by association/unit
+
+### propertyContextService
+- provide derived context for threads, contacts, and issues
+- validate consistency when linking contacts/issues to units
+
+---
+
+# Part 11 — API Endpoints
+
+Create or extend endpoints such as:
+
+## Associations
+- `GET /api/associations`
+- `POST /api/associations`
+- `GET /api/associations/:id`
+- `PATCH /api/associations/:id`
+
+## Units
+- `GET /api/units`
+- `POST /api/units`
+- `GET /api/units/:id`
+- `PATCH /api/units/:id`
+
+## Contacts
+Extend existing endpoints to support:
+- association selection
+- unit selection
+
+## Issues
+Extend existing endpoints to support:
+- association selection
+- unit selection
+
+Support search/filter query params where appropriate.
+
+---
+
+# Part 12 — UI Integration Points
+
+Update these existing screens:
+
+## Inbox / thread view
+Show association and unit context where known.
+
+## Contact detail page
+Show:
+- associated association
+- associated unit
+- related issues in that context
+
+## Issue detail page
+Show:
+- association
+- unit
+- allow edit/update
+
+## Contacts list
+Allow filter by association and unit.
+
+## Issues list
+Allow filter by association and unit.
+
+---
+
+# Part 13 — Data Integrity Rules
+
+Enforce these rules in backend services:
+
+1. A unit must belong to an association.
+2. A contact’s unit must belong to the selected association.
+3. An issue’s unit must belong to the selected association.
+4. Deleting or deactivating an association must not silently corrupt linked data.
+5. Deleting or deactivating a unit must be prevented or carefully handled if linked records exist.
+
+Prefer soft handling / validation over destructive behavior.
+
+---
+
+# Part 14 — Forward Compatibility
+
+Design this chunk so future features can use property context cleanly:
+
+- RingEX screen pop should later show association and unit
+- issues should later support richer property history
+- automation rules may later route by association
+- AI may later use association/unit context
+
+Do not build those features now, but preserve architectural space for them.
+
+---
+
+# Definition of Done
+
+Chunk 9 is complete when:
+
+- users can create and manage associations
+- users can create and manage units within associations
+- contacts can be linked to an association and unit
+- issues can be linked to an association and unit
+- association and unit context appears in relevant thread/contact/issue views
+- searching and filtering by association and unit works
+- all data persists in PostgreSQL with proper validation and foreign keys
+
+---
+
+# Deliverables
+
+- Postgres migrations for associations, units, and contact/issue linkage updates
+- backend services for associations and units
+- association and unit APIs
+- associations UI
+- units UI
+- updated contact and issue forms
+- updated inbox/thread context display
+- explanation of data integrity and linking decisions
+
+Again: this chunk is only for Associations & Units. Build it as a clean property-context layer for the operations platform, not as a full accounting or property management suite.

@@ -16,10 +16,11 @@ import { useToast } from "@/hooks/use-toast";
 import {
   AlertCircle, Plus, Tag, User, Clock, Mail, CheckCircle2,
   FileText, MessageSquare, Activity, X, Link2, ChevronRight,
-  PenLine, Calendar,
+  PenLine, Calendar, Building2, MapPin,
 } from "lucide-react";
 import type { IssueWithDetails, IssueTimelineItem, IssueThreadWithThread, TaskWithMeta, NoteWithUser } from "@shared/routes";
 import { ISSUE_STATUSES, ISSUE_PRIORITIES } from "@shared/routes";
+import type { Association, Unit } from "@shared/schema";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -67,10 +68,27 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
   const [title, setTitle] = useState(defaultTitle ?? "");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("Normal");
+  const [associationId, setAssociationId] = useState<string>("none");
+  const [unitId, setUnitId] = useState<string>("none");
+
+  const { data: associations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()), enabled: open });
+  const { data: assocUnits = [] } = useQuery<Unit[]>({
+    queryKey: ["/api/associations", associationId, "units"],
+    queryFn: () => fetch(`/api/associations/${associationId}/units`).then(r => r.json()),
+    enabled: open && associationId !== "none",
+  });
+
+  function handleAssocChange(val: string) { setAssociationId(val); setUnitId("none"); }
 
   const createMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/issues", { title, description: description || null, priority });
+      const res = await apiRequest("POST", "/api/issues", {
+        title,
+        description: description || null,
+        priority,
+        associationId: associationId !== "none" ? Number(associationId) : null,
+        unitId: unitId !== "none" ? Number(unitId) : null,
+      });
       const issue: IssueWithDetails = await res.json();
       if (defaultThreadId) {
         await apiRequest("POST", `/api/issues/${issue.id}/link-thread`, { threadId: defaultThreadId });
@@ -84,6 +102,8 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
       setTitle(defaultTitle ?? "");
       setDescription("");
       setPriority("Normal");
+      setAssociationId("none");
+      setUnitId("none");
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -126,6 +146,28 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Association</label>
+              <Select value={associationId} onValueChange={handleAssocChange}>
+                <SelectTrigger data-testid="select-issue-association"><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {associations.map(a => <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Unit</label>
+              <Select value={unitId} onValueChange={setUnitId} disabled={associationId === "none"}>
+                <SelectTrigger data-testid="select-issue-unit"><SelectValue placeholder="None" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {assocUnits.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.unitNumber}{u.building ? ` (${u.building})` : ""}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
         <DialogFooter>
@@ -345,6 +387,84 @@ function IssueListItem({
   );
 }
 
+// ─── Issue Association Section ────────────────────────────────────────────────
+
+function IssueAssociationSection({ issue, onUpdate }: { issue: IssueWithDetails; onUpdate: (aid: number | null, uid: number | null) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [selAssocId, setSelAssocId] = useState<string>(issue.associationId?.toString() ?? "none");
+  const [selUnitId, setSelUnitId] = useState<string>(issue.unitId?.toString() ?? "none");
+
+  const { data: associations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()), enabled: editing });
+  const { data: assocDetail } = useQuery<{ name: string }>({
+    queryKey: ["/api/associations", issue.associationId],
+    queryFn: () => fetch(`/api/associations/${issue.associationId}`).then(r => r.json()),
+    enabled: !!issue.associationId && !editing,
+  });
+  const { data: assocUnits = [] } = useQuery<Unit[]>({
+    queryKey: ["/api/associations", selAssocId, "units"],
+    queryFn: () => fetch(`/api/associations/${selAssocId}/units`).then(r => r.json()),
+    enabled: editing && selAssocId !== "none",
+  });
+  const { data: unitDetail } = useQuery<{ unitNumber: string; building: string | null }>({
+    queryKey: ["/api/units", issue.unitId],
+    queryFn: () => fetch(`/api/units/${issue.unitId}`).then(r => r.json()),
+    enabled: !!issue.unitId && !editing,
+  });
+
+  function handleEdit() { setSelAssocId(issue.associationId?.toString() ?? "none"); setSelUnitId(issue.unitId?.toString() ?? "none"); setEditing(true); }
+  function handleSave() { onUpdate(selAssocId !== "none" ? Number(selAssocId) : null, selUnitId !== "none" ? Number(selUnitId) : null); setEditing(false); }
+
+  return (
+    <div className="space-y-2" data-testid="issue-association-section">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+          <Building2 className="h-3.5 w-3.5" />Association
+        </p>
+        {!editing && <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleEdit} data-testid="button-edit-issue-association">Edit</Button>}
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <Select value={selAssocId} onValueChange={v => { setSelAssocId(v); setSelUnitId("none"); }}>
+            <SelectTrigger className="h-8 text-xs" data-testid="select-issue-detail-association"><SelectValue placeholder="None" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              {associations.map(a => <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Select value={selUnitId} onValueChange={setSelUnitId} disabled={selAssocId === "none"}>
+            <SelectTrigger className="h-8 text-xs" data-testid="select-issue-detail-unit"><SelectValue placeholder="No unit" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">No unit</SelectItem>
+              {assocUnits.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.unitNumber}{u.building ? ` (${u.building})` : ""}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <div className="flex gap-2">
+            <Button size="sm" className="h-7 text-xs" onClick={handleSave} data-testid="button-save-issue-association">Save</Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(false)}>Cancel</Button>
+          </div>
+        </div>
+      ) : (
+        <div className="text-sm space-y-1">
+          {issue.associationId && assocDetail ? (
+            <div className="flex items-center gap-1.5">
+              <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span data-testid="text-issue-assoc">{assocDetail.name}</span>
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground" data-testid="text-no-issue-association">No association linked.</p>
+          )}
+          {issue.unitId && unitDetail && (
+            <div className="flex items-center gap-1.5 pl-1">
+              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+              <span className="text-xs" data-testid="text-issue-unit">Unit {unitDetail.unitNumber}{unitDetail.building ? ` · ${unitDetail.building}` : ""}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Issue Detail Panel ────────────────────────────────────────────────────────
 
 function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpdated: () => void }) {
@@ -523,6 +643,11 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
                 </p>
               </div>
             )}
+
+            <IssueAssociationSection
+              issue={issue}
+              onUpdate={(aid, uid) => updateMutation.mutate({ associationId: aid, unitId: uid })}
+            />
 
             <Separator />
 
@@ -736,14 +861,18 @@ export function IssuesPage() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
+  const [assocFilter, setAssocFilter] = useState<string>("all");
   const [showCreate, setShowCreate] = useState(false);
+
+  const { data: filterAssociations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()) });
 
   const queryParams = new URLSearchParams();
   if (statusFilter !== "all") queryParams.set("status", statusFilter);
   if (priorityFilter !== "all") queryParams.set("priority", priorityFilter);
+  if (assocFilter !== "all") queryParams.set("associationId", assocFilter);
 
   const { data: issues, isLoading } = useQuery<IssueWithDetails[]>({
-    queryKey: ["/api/issues", statusFilter, priorityFilter],
+    queryKey: ["/api/issues", statusFilter, priorityFilter, assocFilter],
     queryFn: () => fetch(`/api/issues?${queryParams.toString()}`).then(r => r.json()),
   });
 
@@ -768,7 +897,7 @@ export function IssuesPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left: Issue List */}
         <div className="w-80 border-r border-border flex flex-col shrink-0">
-          <div className="px-3 py-2 border-b border-border flex gap-2 shrink-0">
+          <div className="px-3 py-2 border-b border-border flex gap-2 shrink-0 flex-wrap">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
               <SelectTrigger className="h-7 text-xs" data-testid="select-filter-status">
                 <SelectValue placeholder="Status" />
@@ -788,6 +917,17 @@ export function IssuesPage() {
                 <SelectItem value="all">All priorities</SelectItem>
                 {ISSUE_PRIORITIES.map(p => (
                   <SelectItem key={p} value={p}>{p}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={assocFilter} onValueChange={setAssocFilter}>
+              <SelectTrigger className="h-7 text-xs" data-testid="select-filter-association">
+                <SelectValue placeholder="Association" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All associations</SelectItem>
+                {filterAssociations.map(a => (
+                  <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>

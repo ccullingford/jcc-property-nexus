@@ -44,6 +44,29 @@ export type Mailbox = typeof mailboxes.$inferSelect;
 export type InsertMailbox = z.infer<typeof insertMailboxSchema>;
 
 // ============================================================
+// ASSOCIATIONS
+// ============================================================
+export const associations = pgTable("associations", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  code: text("code"),
+  mailboxId: integer("mailbox_id").references(() => mailboxes.id),
+  addressLine1: text("address_line_1"),
+  addressLine2: text("address_line_2"),
+  city: text("city"),
+  state: text("state"),
+  postalCode: text("postal_code"),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertAssociationSchema = createInsertSchema(associations).omit({ id: true, createdAt: true, updatedAt: true });
+export type Association = typeof associations.$inferSelect;
+export type InsertAssociation = z.infer<typeof insertAssociationSchema>;
+
+// ============================================================
 // CONTACTS
 // ============================================================
 export const contacts = pgTable("contacts", {
@@ -55,6 +78,8 @@ export const contacts = pgTable("contacts", {
   primaryEmail: text("primary_email"),
   primaryPhone: text("primary_phone"),
   notes: text("notes"),
+  associationId: integer("association_id").references(() => associations.id),
+  unitId: integer("unit_id").references(() => units.id),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -192,13 +217,18 @@ export type InsertProperty = z.infer<typeof insertPropertySchema>;
 // ============================================================
 export const units = pgTable("units", {
   id: serial("id").primaryKey(),
-  propertyId: integer("property_id").notNull().references(() => properties.id),
+  associationId: integer("association_id").references(() => associations.id),
+  propertyId: integer("property_id").references(() => properties.id),
   unitNumber: text("unit_number").notNull(),
-  ownerContactId: integer("owner_contact_id").references(() => contacts.id),
-  tenantContactId: integer("tenant_contact_id").references(() => contacts.id),
+  building: text("building"),
+  streetAddress: text("street_address"),
+  notes: text("notes"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
-export const insertUnitSchema = createInsertSchema(units).omit({ id: true });
+export const insertUnitSchema = createInsertSchema(units).omit({ id: true, createdAt: true, updatedAt: true });
 export type Unit = typeof units.$inferSelect;
 export type InsertUnit = z.infer<typeof insertUnitSchema>;
 
@@ -210,6 +240,7 @@ export const issues = pgTable("issues", {
   title: text("title").notNull(),
   description: text("description"),
   contactId: integer("contact_id").references(() => contacts.id),
+  associationId: integer("association_id").references(() => associations.id),
   propertyId: integer("property_id").references(() => properties.id),
   unitId: integer("unit_id").references(() => units.id),
   assignedUserId: integer("assigned_user_id").references(() => users.id),
@@ -355,5 +386,7 @@ export type UpdateUserRequest = Partial<InsertUser>;
 export type UpdateMailboxRequest = Partial<InsertMailbox>;
 export type UpdateContactRequest = Partial<InsertContact>;
 export type UpdatePropertyRequest = Partial<InsertProperty>;
+export type UpdateAssociationRequest = Partial<InsertAssociation>;
+export type UpdateUnitRequest = Partial<InsertUnit>;
 export type UpdateIssueRequest = Partial<InsertIssue>;
 export type UpdateTaskRequest = Partial<InsertTask>;
