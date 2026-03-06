@@ -9,7 +9,7 @@ export const users = pgTable("users", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
-  role: text("role").notNull().default("staff"), // admin | manager | staff
+  role: text("role").notNull().default("staff"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -23,7 +23,7 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export const mailboxes = pgTable("mailboxes", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  type: text("type").notNull(), // shared | personal
+  type: text("type").notNull(),
   microsoftMailboxId: text("microsoft_mailbox_id"),
   isDefault: boolean("is_default").default(false).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -44,8 +44,9 @@ export const emailThreads = pgTable("email_threads", {
   assignedUserId: integer("assigned_user_id").references(() => users.id),
   contactId: integer("contact_id").references(() => contacts.id),
   propertyId: integer("property_id").references(() => properties.id),
-  status: text("status").notNull().default("Open"), // Open | Waiting | Closed | Archived
+  status: text("status").notNull().default("Open"),
   lastMessageAt: timestamp("last_message_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -61,11 +62,16 @@ export const messages = pgTable("messages", {
   threadId: integer("thread_id").notNull().references(() => emailThreads.id),
   microsoftMessageId: text("microsoft_message_id"),
   senderEmail: text("sender_email").notNull(),
+  senderName: text("sender_name"),
   recipients: text("recipients").array(),
   subject: text("subject"),
-  body: text("body"),
+  bodyPreview: text("body_preview"),
+  bodyText: text("body_text"),
+  bodyHtml: text("body_html"),
   receivedAt: timestamp("received_at").defaultNow().notNull(),
   hasAttachments: boolean("has_attachments").default(false).notNull(),
+  isRead: boolean("is_read").default(false).notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const insertMessageSchema = createInsertSchema(messages).omit({ id: true });
@@ -73,12 +79,29 @@ export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
 
 // ============================================================
+// ATTACHMENTS
+// ============================================================
+export const attachments = pgTable("attachments", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").notNull().references(() => messages.id),
+  microsoftAttachmentId: text("microsoft_attachment_id"),
+  filename: text("filename").notNull(),
+  contentType: text("content_type"),
+  sizeBytes: integer("size_bytes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertAttachmentSchema = createInsertSchema(attachments).omit({ id: true, createdAt: true });
+export type Attachment = typeof attachments.$inferSelect;
+export type InsertAttachment = z.infer<typeof insertAttachmentSchema>;
+
+// ============================================================
 // CONTACTS
 // ============================================================
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
   displayName: text("display_name").notNull(),
-  contactType: text("contact_type").notNull().default("Other"), // Owner|Tenant|Vendor|Board|Realtor|Attorney|Other
+  contactType: text("contact_type").notNull().default("Other"),
   primaryEmail: text("primary_email"),
   primaryPhone: text("primary_phone"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -94,8 +117,8 @@ export type InsertContact = z.infer<typeof insertContactSchema>;
 export const contactPhones = pgTable("contact_phones", {
   id: serial("id").primaryKey(),
   contactId: integer("contact_id").notNull().references(() => contacts.id),
-  phoneNumber: text("phone_number").notNull(), // E164 format
-  label: text("label"), // mobile | home | work | other
+  phoneNumber: text("phone_number").notNull(),
+  label: text("label"),
 });
 
 export const insertContactPhoneSchema = createInsertSchema(contactPhones).omit({ id: true });
@@ -143,8 +166,8 @@ export const issues = pgTable("issues", {
   propertyId: integer("property_id").references(() => properties.id),
   unitId: integer("unit_id").references(() => units.id),
   assignedUserId: integer("assigned_user_id").references(() => users.id),
-  status: text("status").notNull().default("Open"), // Open | In Progress | Waiting | Resolved | Closed
-  priority: text("priority").notNull().default("Medium"), // Low | Medium | High | Urgent
+  status: text("status").notNull().default("Open"),
+  priority: text("priority").notNull().default("Medium"),
   closedAt: timestamp("closed_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -163,8 +186,8 @@ export const tasks = pgTable("tasks", {
   assignedUserId: integer("assigned_user_id").references(() => users.id),
   title: text("title").notNull(),
   description: text("description"),
-  status: text("status").notNull().default("Open"), // Open | In Progress | Done | Cancelled
-  priority: text("priority").notNull().default("Medium"), // Low | Medium | High | Urgent
+  status: text("status").notNull().default("Open"),
+  priority: text("priority").notNull().default("Medium"),
   dueDate: timestamp("due_date"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -199,7 +222,7 @@ export const calls = pgTable("calls", {
   userId: integer("user_id").references(() => users.id),
   startedAt: timestamp("started_at").defaultNow().notNull(),
   endedAt: timestamp("ended_at"),
-  direction: text("direction").notNull().default("inbound"), // inbound | outbound
+  direction: text("direction").notNull().default("inbound"),
   notes: text("notes"),
   issueId: integer("issue_id").references(() => issues.id),
 });
@@ -213,7 +236,7 @@ export type InsertCall = z.infer<typeof insertCallSchema>;
 // ============================================================
 export const activityLog = pgTable("activity_log", {
   id: serial("id").primaryKey(),
-  entityType: text("entity_type").notNull(), // thread | issue | task | contact | call
+  entityType: text("entity_type").notNull(),
   entityId: integer("entity_id").notNull(),
   action: text("action").notNull(),
   userId: integer("user_id").references(() => users.id),

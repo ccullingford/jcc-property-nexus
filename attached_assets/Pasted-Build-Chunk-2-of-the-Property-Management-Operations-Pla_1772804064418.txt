@@ -1,0 +1,244 @@
+Build Chunk 2 of the Property Management Operations Platform.
+
+Chunk 1 is already complete. Do not rebuild the foundation. Extend the existing application.
+
+This chunk is ONLY for the **Shared Inbox Read Experience**.
+
+## Required stack
+Keep the existing stack exactly as-is:
+- Frontend: React
+- Backend: Node.js
+- Database: Postgres
+
+Do not replace or re-architect the stack.
+
+## Goal of Chunk 2
+Allow authenticated users to connect to the shared Outlook mailbox and view synced email threads and messages inside the app.
+
+This chunk is focused on **reading mailbox data only**.
+
+Do NOT build reply/send, notes, tasks, contacts, issues, telephony, or AI in this chunk.
+
+## What this chunk must deliver
+1. Microsoft Graph mailbox read integration
+2. shared mailbox thread sync into Postgres
+3. message sync into Postgres
+4. inbox thread list UI
+5. thread detail / conversation view UI
+6. basic unread/read indicators
+7. attachment metadata display
+8. backend sync services and APIs for reading synced data
+
+## Important constraints
+- Do NOT rebuild Chunk 1
+- Do NOT create a fake inbox with static JSON
+- Do NOT skip Postgres persistence
+- Do NOT make the frontend call Microsoft Graph directly
+- Do NOT implement send/reply yet
+- Do NOT implement assignment, notes, tasks, or issues yet
+- Do NOT simplify the system into a personal mailbox reader only
+- Keep shared mailbox support as the primary use case
+
+## Architecture requirements
+
+### Backend
+Extend the Node backend with clear services/modules.
+
+Add services such as:
+- `graphSyncService`
+- `threadService`
+- `messageService`
+- `mailboxReadService`
+
+Responsibilities:
+
+#### graphSyncService
+- connect to Microsoft Graph using the authenticated Microsoft context
+- read message/thread data from the configured shared mailbox
+- map Graph data to internal models
+- support incremental sync design, even if the first implementation is basic
+
+#### threadService
+- store and retrieve synced thread records
+- expose thread list APIs
+- support filtering by mailbox
+
+#### messageService
+- store and retrieve messages for a given thread
+- expose thread message APIs
+
+### API endpoints
+Create or extend backend endpoints such as:
+
+- `GET /api/mailboxes`
+- `POST /api/mailboxes/:id/sync`
+- `GET /api/threads`
+- `GET /api/threads/:id`
+- `GET /api/threads/:id/messages`
+
+The backend should read from Postgres after sync, not directly from Graph for every page render.
+
+## Database requirements
+
+Create migrations for the following tables.
+
+### email_threads
+Fields:
+- `id`
+- `mailbox_id`
+- `subject`
+- `microsoft_thread_id`
+- `assigned_user_id` nullable
+- `status` nullable or default placeholder
+- `created_at`
+- `updated_at`
+- `last_message_at`
+
+### messages
+Fields:
+- `id`
+- `thread_id`
+- `microsoft_message_id`
+- `sender_email`
+- `sender_name` nullable
+- `recipients` (JSON or normalized structure)
+- `subject`
+- `body_preview`
+- `body_html` or `body_text`
+- `received_at`
+- `has_attachments`
+- `is_read`
+- `created_at`
+- `updated_at`
+
+### attachments
+Fields:
+- `id`
+- `message_id`
+- `microsoft_attachment_id`
+- `filename`
+- `content_type`
+- `size_bytes`
+- `created_at`
+
+Notes:
+- Store attachment metadata only in this chunk
+- Do not implement attachment download handling unless easy and clean
+- Use proper foreign keys and indexes
+- Add unique constraints for Microsoft IDs where appropriate
+
+## Microsoft Graph integration requirements
+Support the configured shared mailbox as the primary mailbox source.
+
+This chunk should:
+- use Microsoft Graph to read mailbox content
+- sync threads/messages from the shared mailbox configured in the database
+- support the existing authenticated user context from Chunk 1
+- be structured so future mailbox types can be added later
+
+If thread-level retrieval is awkward with Graph, it is acceptable to sync by message/conversation grouping, but the app must present a thread-based inbox experience.
+
+## Sync behavior
+Implement a practical first-pass sync strategy.
+
+Requirements:
+- allow manual sync trigger
+- persist synced data to Postgres
+- avoid creating duplicates
+- update existing rows when messages change
+- track latest message timestamp per thread
+
+It is acceptable in Chunk 2 to use a simple sync approach rather than a full production-grade delta sync, but the code structure should clearly support future improvement.
+
+## Frontend requirements
+
+### Inbox page
+Build a real inbox page using React and the existing app shell.
+
+The inbox page should include:
+- mailbox selector if multiple mailboxes exist
+- thread list panel
+- thread detail panel
+
+### Thread list
+Display:
+- subject
+- sender or most recent participant
+- message preview
+- received date/time
+- unread indicator
+- attachment indicator if present
+
+Thread list should:
+- load from backend APIs
+- support selecting a thread
+- update after sync
+
+### Thread detail view
+Display the thread conversation in message order.
+
+Each message should show:
+- sender
+- recipients
+- timestamp
+- subject if useful
+- message body
+- attachment metadata if present
+
+Do not build reply composer yet.
+
+### Loading and empty states
+Add:
+- loading state for inbox
+- empty state when no threads exist
+- sync-in-progress or sync action feedback
+
+## UX requirements
+The UI should feel like a serious internal tool.
+
+Keep it clean and functional:
+- readable thread list
+- clear selected thread state
+- readable message display
+- preserve the app shell from Chunk 1
+
+## Code quality requirements
+- keep TypeScript if already used
+- add migrations instead of manual SQL setup
+- keep backend services separate from controllers/routes
+- avoid business logic in React components
+- use reusable API/data hooks where practical
+- keep code ready for later additions like assignment, notes, and tasks
+
+## Explicitly do not build yet
+Do not build any of the following in this chunk:
+- reply/send email
+- forward email
+- thread assignment
+- internal notes
+- tasks
+- contacts
+- issues/cases
+- RingEX integration
+- AI features
+
+## Definition of done
+Chunk 2 is complete when:
+1. authenticated users can open the Inbox page
+2. the backend can sync shared mailbox email data from Microsoft Graph into Postgres
+3. synced threads appear in the thread list
+4. users can select a thread and read its messages
+5. attachment metadata appears where relevant
+6. no fake data is required for the inbox to function
+7. the code is organized cleanly for Chunk 3
+
+## Deliverables
+Produce:
+- backend Graph read/sync implementation
+- Postgres migrations for threads, messages, and attachments
+- inbox APIs
+- React inbox UI
+- any needed updates to setup documentation
+- brief explanation of sync design decisions
+
+Again: this chunk is only the shared inbox read experience. Build it as a real synced inbox, not a mockup.

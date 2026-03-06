@@ -71,3 +71,16 @@ Session-based scaffold. POST /api/auth/login-scaffold with email+name creates/fi
 
 ## Build Chunks Completed
 - **Chunk 1**: Foundation — auth scaffold, app shell, users, mailboxes, full schema for all future chunks
+- **Chunk 2**: Inbox Read — Microsoft Graph sync service, full inbox UI (thread list + message view), attachments metadata, mailbox sync endpoint
+
+## Microsoft Graph Configuration
+For mailbox sync to work, set these environment secrets:
+- `MICROSOFT_TENANT_ID` — Azure AD tenant ID
+- `MICROSOFT_CLIENT_ID` — App registration client ID
+- `MICROSOFT_CLIENT_SECRET` — App registration client secret
+
+The Azure AD app needs **Mail.Read** application permission (admin consent required).
+Shared mailboxes are read via `/users/{sharedMailboxEmail}/messages`.
+
+Sync endpoint: `POST /api/mailboxes/:id/sync`
+Graph status: `GET /api/graph/status`

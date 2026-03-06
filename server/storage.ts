@@ -1,11 +1,12 @@
 import { db } from "./db";
 import {
-  users, mailboxes, emailThreads, messages, contacts, contactPhones,
+  users, mailboxes, emailThreads, messages, attachments, contacts, contactPhones,
   properties, units, issues, tasks, notes, calls, activityLog,
   type User, type InsertUser,
   type Mailbox, type InsertMailbox,
   type EmailThread, type InsertEmailThread,
   type Message, type InsertMessage,
+  type Attachment, type InsertAttachment,
   type Contact, type InsertContact,
   type ContactPhone, type InsertContactPhone,
   type Property, type InsertProperty,
@@ -16,7 +17,17 @@ import {
   type Call, type InsertCall,
   type ActivityLog, type InsertActivityLog,
 } from "@shared/schema";
-import { eq, ilike, or } from "drizzle-orm";
+import { eq, desc, and, sql } from "drizzle-orm";
+
+export type ThreadWithMeta = EmailThread & {
+  unreadCount: number;
+  latestSender: string | null;
+  latestSenderName: string | null;
+};
+
+export type MessageWithAttachments = Message & {
+  attachments: Attachment[];
+};
 
 export interface IStorage {
   // Users
@@ -34,14 +45,15 @@ export interface IStorage {
   deleteMailbox(id: number): Promise<void>;
 
   // Email Threads
-  getThreads(mailboxId?: number): Promise<EmailThread[]>;
+  getThreads(mailboxId?: number): Promise<ThreadWithMeta[]>;
   getThread(id: number): Promise<EmailThread | undefined>;
   createThread(thread: InsertEmailThread): Promise<EmailThread>;
   updateThread(id: number, updates: Partial<InsertEmailThread>): Promise<EmailThread>;
 
   // Messages
-  getMessagesByThread(threadId: number): Promise<Message[]>;
+  getMessagesByThread(threadId: number): Promise<MessageWithAttachments[]>;
   createMessage(message: InsertMessage): Promise<Message>;
+  createAttachment(attachment: InsertAttachment): Promise<Attachment>;
 
   // Contacts
   getContacts(): Promise<Contact[]>;
@@ -106,18 +118,45 @@ export class DatabaseStorage implements IStorage {
   async updateMailbox(id: number, m: Partial<InsertMailbox>) { const [r] = await db.update(mailboxes).set(m).where(eq(mailboxes.id, id)).returning(); return r; }
   async deleteMailbox(id: number) { await db.delete(mailboxes).where(eq(mailboxes.id, id)); }
 
-  // Email Threads
-  async getThreads(mailboxId?: number) {
-    if (mailboxId) return db.select().from(emailThreads).where(eq(emailThreads.mailboxId, mailboxId));
-    return db.select().from(emailThreads);
+  // Email Threads — enriched with unread count + latest sender
+  async getThreads(mailboxId?: number): Promise<ThreadWithMeta[]> {
+    const rows = mailboxId
+      ? await db.select().from(emailThreads).where(eq(emailThreads.mailboxId, mailboxId)).orderBy(desc(emailThreads.lastMessageAt))
+      : await db.select().from(emailThreads).orderBy(desc(emailThreads.lastMessageAt));
+
+    // Enrich each thread with unread count and latest sender
+    const enriched: ThreadWithMeta[] = [];
+    for (const t of rows) {
+      const msgs = await db.select().from(messages).where(eq(messages.threadId, t.id)).orderBy(desc(messages.receivedAt));
+      const unreadCount = msgs.filter(m => !m.isRead).length;
+      const latest = msgs[0];
+      enriched.push({
+        ...t,
+        unreadCount,
+        latestSender: latest?.senderEmail ?? null,
+        latestSenderName: latest?.senderName ?? null,
+      });
+    }
+    return enriched;
   }
+
   async getThread(id: number) { const [r] = await db.select().from(emailThreads).where(eq(emailThreads.id, id)); return r; }
   async createThread(t: InsertEmailThread) { const [r] = await db.insert(emailThreads).values(t).returning(); return r; }
   async updateThread(id: number, t: Partial<InsertEmailThread>) { const [r] = await db.update(emailThreads).set(t).where(eq(emailThreads.id, id)).returning(); return r; }
 
-  // Messages
-  async getMessagesByThread(threadId: number) { return db.select().from(messages).where(eq(messages.threadId, threadId)); }
+  // Messages — with attachments
+  async getMessagesByThread(threadId: number): Promise<MessageWithAttachments[]> {
+    const msgs = await db.select().from(messages).where(eq(messages.threadId, threadId)).orderBy(messages.receivedAt);
+    const result: MessageWithAttachments[] = [];
+    for (const m of msgs) {
+      const atts = await db.select().from(attachments).where(eq(attachments.messageId, m.id));
+      result.push({ ...m, attachments: atts });
+    }
+    return result;
+  }
+
   async createMessage(m: InsertMessage) { const [r] = await db.insert(messages).values(m).returning(); return r; }
+  async createAttachment(a: InsertAttachment) { const [r] = await db.insert(attachments).values(a).returning(); return r; }
 
   // Contacts
   async getContacts() { return db.select().from(contacts); }
@@ -172,8 +211,7 @@ export class DatabaseStorage implements IStorage {
   // Activity Log
   async logActivity(e: InsertActivityLog) { const [r] = await db.insert(activityLog).values(e).returning(); return r; }
   async getActivityByEntity(entityType: string, entityId: number) {
-    return db.select().from(activityLog)
-      .where(eq(activityLog.entityType, entityType));
+    return db.select().from(activityLog).where(eq(activityLog.entityType, entityType));
   }
 }
 

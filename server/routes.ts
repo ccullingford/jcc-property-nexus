@@ -4,11 +4,18 @@ import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
 import expressSession from "express-session";
+import { syncMailbox } from "./services/syncService";
+import { isGraphConfigured } from "./services/graphService";
 
 declare module "express-session" {
   interface SessionData {
     userId: number;
   }
+}
+
+function requireAuth(req: any, res: any, next: any) {
+  if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
+  next();
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
@@ -115,29 +122,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(204).send();
   });
 
+  // ─── Mailbox Sync ────────────────────────────────────────────────────────────
+  app.post(api.mailboxes.sync.path, requireAuth, async (req, res) => {
+    try {
+      const mailboxId = Number(req.params.id);
+      const mailbox = await storage.getMailbox(mailboxId);
+      if (!mailbox) return res.status(404).json({ message: "Mailbox not found" });
+
+      const result = await syncMailbox(mailbox);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Sync failed" });
+    }
+  });
+
   // ─── Email Threads ──────────────────────────────────────────────────────────
-  app.get(api.threads.list.path, async (req, res) => {
+  app.get(api.threads.list.path, requireAuth, async (req, res) => {
     const mailboxId = req.query.mailboxId ? Number(req.query.mailboxId) : undefined;
     res.json(await storage.getThreads(mailboxId));
   });
 
-  app.get(api.threads.get.path, async (req, res) => {
+  app.get(api.threads.get.path, requireAuth, async (req, res) => {
     const thread = await storage.getThread(Number(req.params.id));
     if (!thread) return res.status(404).json({ message: "Thread not found" });
     res.json(thread);
   });
 
-  app.post(api.threads.create.path, async (req, res) => {
-    try {
-      const input = api.threads.create.input.parse(req.body);
-      res.status(201).json(await storage.createThread(input));
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: "Internal error" });
-    }
-  });
-
-  app.put(api.threads.update.path, async (req, res) => {
+  app.put(api.threads.update.path, requireAuth, async (req, res) => {
     try {
       const input = api.threads.update.input.parse(req.body);
       res.json(await storage.updateThread(Number(req.params.id), input));
@@ -145,6 +156,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(500).json({ message: "Internal error" });
     }
+  });
+
+  // ─── Thread Messages ─────────────────────────────────────────────────────────
+  app.get(api.threads.messages.path, requireAuth, async (req, res) => {
+    const threadId = Number(req.params.id);
+    const thread = await storage.getThread(threadId);
+    if (!thread) return res.status(404).json({ message: "Thread not found" });
+    const msgs = await storage.getMessagesByThread(threadId);
+    res.json(msgs);
   });
 
   // ─── Contacts ───────────────────────────────────────────────────────────────
@@ -329,6 +349,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(500).json({ message: "Internal error" });
     }
+  });
+
+  // ─── Graph Status ────────────────────────────────────────────────────────────
+  app.get(api.graph.status.path, (_req, res) => {
+    const configured = isGraphConfigured();
+    res.json({
+      configured,
+      message: configured
+        ? "Microsoft Graph credentials are configured. Sync is ready."
+        : "Microsoft Graph is not configured. Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, and MICROSOFT_CLIENT_SECRET to enable sync.",
+    });
   });
 
   return httpServer;

@@ -9,8 +9,8 @@ import { Layout, FullPageLoader } from "@/components/layout";
 import { Login } from "@/pages/login";
 import { Admin } from "@/pages/admin";
 import { CallPopPage } from "@/pages/call-pop";
+import { InboxPage } from "@/pages/inbox";
 import {
-  InboxPage,
   TasksPage,
   IssuesPage,
   ContactsPage,

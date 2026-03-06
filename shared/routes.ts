@@ -2,8 +2,9 @@ import { z } from 'zod';
 import {
   insertUserSchema, insertMailboxSchema, insertEmailThreadSchema,
   insertContactSchema, insertPropertySchema, insertUnitSchema,
-  insertIssueSchema, insertTaskSchema, insertNoteSchema, insertCallSchema,
-  users, mailboxes, emailThreads, contacts, properties, units, issues, tasks, notes, calls
+  insertIssueSchema, insertTaskSchema, insertCallSchema,
+  users, mailboxes, emailThreads, messages, attachments,
+  contacts, properties, units, issues, tasks, calls,
 } from './schema';
 
 export const errorSchemas = {
@@ -24,7 +25,7 @@ export const api = {
       method: 'POST' as const,
       path: '/api/auth/login-scaffold' as const,
       input: z.object({ email: z.string(), name: z.string().optional() }),
-      responses: { 200: z.custom<typeof users.$inferSelect>(), 400: errorSchemas.validation },
+      responses: { 200: z.custom<typeof users.$inferSelect>() },
     },
     logout: {
       method: 'POST' as const,
@@ -35,7 +36,7 @@ export const api = {
 
   users: {
     list: { method: 'GET' as const, path: '/api/users' as const, responses: { 200: z.array(z.custom<typeof users.$inferSelect>()) } },
-    get: { method: 'GET' as const, path: '/api/users/:id' as const, responses: { 200: z.custom<typeof users.$inferSelect>(), 404: errorSchemas.notFound } },
+    get: { method: 'GET' as const, path: '/api/users/:id' as const, responses: { 200: z.custom<typeof users.$inferSelect>() } },
     create: { method: 'POST' as const, path: '/api/users' as const, input: insertUserSchema, responses: { 201: z.custom<typeof users.$inferSelect>() } },
     update: { method: 'PUT' as const, path: '/api/users/:id' as const, input: insertUserSchema.partial(), responses: { 200: z.custom<typeof users.$inferSelect>() } },
   },
@@ -45,13 +46,34 @@ export const api = {
     create: { method: 'POST' as const, path: '/api/mailboxes' as const, input: insertMailboxSchema, responses: { 201: z.custom<typeof mailboxes.$inferSelect>() } },
     update: { method: 'PUT' as const, path: '/api/mailboxes/:id' as const, input: insertMailboxSchema.partial(), responses: { 200: z.custom<typeof mailboxes.$inferSelect>() } },
     delete: { method: 'DELETE' as const, path: '/api/mailboxes/:id' as const, responses: { 204: z.void() } },
+    sync: {
+      method: 'POST' as const,
+      path: '/api/mailboxes/:id/sync' as const,
+      responses: {
+        200: z.object({
+          mailboxId: z.number(),
+          mailboxName: z.string(),
+          threadsUpserted: z.number(),
+          messagesUpserted: z.number(),
+          errors: z.array(z.string()),
+        }),
+      },
+    },
   },
 
   threads: {
-    list: { method: 'GET' as const, path: '/api/threads' as const, responses: { 200: z.array(z.custom<typeof emailThreads.$inferSelect>()) } },
+    list: {
+      method: 'GET' as const,
+      path: '/api/threads' as const,
+      responses: { 200: z.array(z.custom<typeof emailThreads.$inferSelect & { unreadCount: number; latestSender: string | null }>()) },
+    },
     get: { method: 'GET' as const, path: '/api/threads/:id' as const, responses: { 200: z.custom<typeof emailThreads.$inferSelect>() } },
-    create: { method: 'POST' as const, path: '/api/threads' as const, input: insertEmailThreadSchema, responses: { 201: z.custom<typeof emailThreads.$inferSelect>() } },
     update: { method: 'PUT' as const, path: '/api/threads/:id' as const, input: insertEmailThreadSchema.partial(), responses: { 200: z.custom<typeof emailThreads.$inferSelect>() } },
+    messages: {
+      method: 'GET' as const,
+      path: '/api/threads/:id/messages' as const,
+      responses: { 200: z.array(z.custom<typeof messages.$inferSelect & { attachments: typeof attachments.$inferSelect[] }>()) },
+    },
   },
 
   contacts: {
@@ -100,15 +122,21 @@ export const api = {
       responses: { 200: z.object({ contact: z.custom<typeof contacts.$inferSelect>().nullable(), phoneNumber: z.string() }) },
     },
   },
+
+  graph: {
+    status: {
+      method: 'GET' as const,
+      path: '/api/graph/status' as const,
+      responses: { 200: z.object({ configured: z.boolean(), message: z.string() }) },
+    },
+  },
 };
 
 export function buildUrl(path: string, params?: Record<string, string | number>): string {
   let url = path;
   if (params) {
     Object.entries(params).forEach(([key, value]) => {
-      if (url.includes(`:${key}`)) {
-        url = url.replace(`:${key}`, String(value));
-      }
+      if (url.includes(`:${key}`)) url = url.replace(`:${key}`, String(value));
     });
   }
   return url;
