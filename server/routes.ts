@@ -184,7 +184,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       // Domain check (if configured)
       if (config.allowedDomain && !email.endsWith(`@${config.allowedDomain}`)) {
-        console.warn(`OAuth login denied — wrong domain: ${email}`);
         return res.redirect("/login?error=domain_not_allowed");
       }
 
