@@ -89,6 +89,13 @@ Roles: admin > manager > staff. `requireRole` middleware enforces per-route.
 - `GET /api/calls/pop?phone=+1...` — RingEX call pop lookup
 - `GET /api/threads` — email threads (filtered by mailbox)
 - `GET /api/threads/:id/messages` — messages in a thread
+- `POST /api/threads/:id/claim` — claim unassigned thread for current user
+- `POST /api/threads/:id/assign` — assign thread to a user (body: { userId })
+- `POST /api/threads/:id/unassign` — remove assignee from thread
+- `PATCH /api/threads/:id/status` — update thread status (Open|Waiting|Closed|Archived)
+- `GET /api/threads/:id/notes` — get internal notes for a thread (with author info)
+- `POST /api/threads/:id/notes` — add an internal note to a thread
+- `GET /api/threads/:id/activity` — get activity log for a thread (with actor info)
 
 ## Microsoft Graph Configuration
 Required environment secrets for OAuth and mailbox sync:
@@ -104,7 +111,14 @@ The Azure AD app needs:
 Sync endpoint: `POST /api/mailboxes/:id/sync`
 Graph status: `GET /api/graph/status`
 
+## Services
+- `server/services/graphService.ts` — Microsoft Graph mailbox sync
+- `server/services/microsoftAuthService.ts` — PKCE OAuth helpers
+- `server/services/syncService.ts` — Thread/message sync orchestration
+- `server/services/threadWorkflowService.ts` — Thread workflow: claim, assign, unassign, status change, notes, activity
+
 ## Build Chunks Completed
 - **Chunk 1**: Foundation — app shell, schema, users, mailboxes, full DB schema
 - **Chunk 2**: Inbox Read — Microsoft Graph sync service, full inbox UI (thread list + message view), attachments
-- **Chunk 3**: Microsoft OAuth — PKCE auth flow, RBAC middleware, login page, session management
+- **Chunk 2b**: Microsoft OAuth — PKCE auth flow, RBAC middleware, login page, session management
+- **Chunk 3**: Shared Inbox Action Workflow — claim/assign/unassign threads, status changes (Open/Waiting/Closed/Archived), internal notes, activity log, thread sidebar UI

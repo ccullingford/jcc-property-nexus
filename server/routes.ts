@@ -3,6 +3,16 @@ import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
+import {
+  claimThread,
+  assignThread,
+  unassignThread,
+  updateThreadStatus,
+  addNote,
+  getNotesWithUsers,
+  getActivityWithUsers,
+  isValidStatus,
+} from "./services/threadWorkflowService";
 import expressSession from "express-session";
 import { syncMailbox } from "./services/syncService";
 import { isGraphConfigured } from "./services/graphService";
@@ -342,6 +352,77 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const thread = await storage.getThread(threadId);
     if (!thread) return res.status(404).json({ message: "Thread not found" });
     res.json(await storage.getMessagesByThread(threadId));
+  });
+
+  // ─── Thread Workflow Actions ──────────────────────────────────────────────
+  app.post(api.threads.claim.path, async (req, res) => {
+    try {
+      const thread = await claimThread(Number(req.params.id), req.session.userId!, storage);
+      res.json(thread);
+    } catch (err: any) {
+      res.status(err.status ?? 500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.threads.assign.path, async (req, res) => {
+    try {
+      const { userId } = api.threads.assign.input.parse(req.body);
+      const thread = await assignThread(Number(req.params.id), userId, req.session.userId!, storage);
+      res.json(thread);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(err.status ?? 500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.threads.unassign.path, async (req, res) => {
+    try {
+      const thread = await unassignThread(Number(req.params.id), req.session.userId!, storage);
+      res.json(thread);
+    } catch (err: any) {
+      res.status(err.status ?? 500).json({ message: err.message });
+    }
+  });
+
+  app.patch(api.threads.updateStatus.path, async (req, res) => {
+    try {
+      const { status } = api.threads.updateStatus.input.parse(req.body);
+      if (!isValidStatus(status)) return res.status(400).json({ message: `Invalid status. Allowed: Open, Waiting, Closed, Archived` });
+      const thread = await updateThreadStatus(Number(req.params.id), status, req.session.userId!, storage);
+      res.json(thread);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(err.status ?? 500).json({ message: err.message });
+    }
+  });
+
+  // ─── Thread Notes ─────────────────────────────────────────────────────────
+  app.get(api.threads.notes.list.path, async (req, res) => {
+    try {
+      res.json(await getNotesWithUsers(Number(req.params.id), storage));
+    } catch (err: any) {
+      res.status(err.status ?? 500).json({ message: err.message });
+    }
+  });
+
+  app.post(api.threads.notes.create.path, async (req, res) => {
+    try {
+      const { body } = api.threads.notes.create.input.parse(req.body);
+      const note = await addNote(Number(req.params.id), req.session.userId!, body, storage);
+      res.status(201).json(note);
+    } catch (err: any) {
+      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
+      res.status(err.status ?? 500).json({ message: err.message });
+    }
+  });
+
+  // ─── Thread Activity ──────────────────────────────────────────────────────
+  app.get(api.threads.activity.path, async (req, res) => {
+    try {
+      res.json(await getActivityWithUsers(Number(req.params.id), storage));
+    } catch (err: any) {
+      res.status(err.status ?? 500).json({ message: err.message });
+    }
   });
 
   // ─── Contacts ─────────────────────────────────────────────────────────────

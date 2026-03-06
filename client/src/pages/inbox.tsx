@@ -10,7 +10,8 @@ import {
   Inbox, RefreshCw, Paperclip, Mail, ChevronDown,
   AlertCircle, Clock, CheckCheck
 } from "lucide-react";
-import type { Mailbox, EmailThread, Message, Attachment } from "@shared/schema";
+import type { Mailbox, EmailThread, Message, Attachment, User } from "@shared/schema";
+import { ThreadSidebar } from "@/components/thread-sidebar";
 
 // ─── Type extensions (match API response) ─────────────────────────────────────
 interface ThreadWithMeta extends EmailThread {
@@ -257,7 +258,7 @@ function MessageCard({ message }: { message: MessageWithAttachments }) {
 }
 
 // ─── Thread detail view ───────────────────────────────────────────────────────
-function ThreadDetail({ thread }: { thread: ThreadWithMeta }) {
+function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; currentUser: User }) {
   const { data: messages, isLoading } = useQuery<MessageWithAttachments[]>({
     queryKey: ["/api/threads", thread.id, "messages"],
   });
@@ -294,24 +295,37 @@ function ThreadDetail({ thread }: { thread: ThreadWithMeta }) {
         </div>
       </div>
 
-      {/* Messages */}
-      <ScrollArea className="flex-1 min-h-0">
-        <div className="px-6 py-4 space-y-4" data-testid="thread-messages-container">
-          {isLoading ? (
-            <>
-              <Skeleton className="h-32 w-full rounded-lg" />
-              <Skeleton className="h-24 w-full rounded-lg" />
-            </>
-          ) : !messages || messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="thread-no-messages">
-              <Mail className="h-8 w-8 text-muted-foreground/40 mb-3" />
-              <p className="text-sm text-muted-foreground">No messages in this thread.</p>
-            </div>
-          ) : (
-            messages.map(msg => <MessageCard key={msg.id} message={msg} />)
-          )}
+      {/* Two-column: messages + sidebar */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Messages */}
+        <ScrollArea className="flex-1 min-h-0">
+          <div className="px-6 py-4 space-y-4" data-testid="thread-messages-container">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-32 w-full rounded-lg" />
+                <Skeleton className="h-24 w-full rounded-lg" />
+              </>
+            ) : !messages || messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="thread-no-messages">
+                <Mail className="h-8 w-8 text-muted-foreground/40 mb-3" />
+                <p className="text-sm text-muted-foreground">No messages in this thread.</p>
+              </div>
+            ) : (
+              messages.map(msg => <MessageCard key={msg.id} message={msg} />)
+            )}
+          </div>
+        </ScrollArea>
+
+        {/* Actions sidebar */}
+        <div className="w-64 shrink-0 min-h-0 overflow-hidden" data-testid="thread-sidebar">
+          <ThreadSidebar
+            threadId={thread.id}
+            assignedUserId={thread.assignedUserId ?? null}
+            status={thread.status}
+            currentUser={currentUser}
+          />
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }
@@ -351,6 +365,8 @@ function useSyncMailbox(mailboxId: number) {
 export function InboxPage() {
   const [selectedMailboxId, setSelectedMailboxId] = useState<number | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
+
+  const { data: currentUser } = useQuery<User>({ queryKey: ["/api/auth/me"] });
 
   const { data: mailboxes, isLoading: loadingMailboxes } = useQuery<Mailbox[]>({
     queryKey: ["/api/mailboxes"],
@@ -481,8 +497,14 @@ export function InboxPage() {
 
         {/* ── Thread detail ────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="thread-detail-panel">
-          {selectedThread ? (
-            <ThreadDetail thread={selectedThread} />
+          {selectedThread && currentUser ? (
+            <ThreadDetail thread={selectedThread} currentUser={currentUser} />
+          ) : selectedThread ? (
+            <div className="flex flex-col h-full min-h-0">
+              <div className="px-6 py-4 border-b border-border shrink-0 bg-card">
+                <Skeleton className="h-5 w-2/3 rounded" />
+              </div>
+            </div>
           ) : (
             <div className="flex flex-col items-center justify-center h-full text-center p-12" data-testid="thread-detail-empty">
               <Mail className="h-10 w-10 text-muted-foreground/30 mb-3" />

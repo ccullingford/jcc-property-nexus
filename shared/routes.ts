@@ -7,6 +7,27 @@ import {
   contacts, properties, units, issues, tasks, calls,
 } from './schema';
 
+export type NoteWithUser = {
+  id: number;
+  threadId: number | null;
+  userId: number | null;
+  body: string;
+  createdAt: string;
+  authorName: string | null;
+  authorEmail: string | null;
+};
+
+export type ActivityWithUser = {
+  id: number;
+  entityType: string;
+  entityId: number;
+  action: string;
+  userId: number | null;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+  actorName: string | null;
+};
+
 export const errorSchemas = {
   validation: z.object({ message: z.string(), field: z.string().optional() }),
   notFound: z.object({ message: z.string() }),
@@ -82,6 +103,42 @@ export const api = {
       method: 'GET' as const,
       path: '/api/threads/:id/messages' as const,
       responses: { 200: z.array(z.custom<typeof messages.$inferSelect & { attachments: typeof attachments.$inferSelect[] }>()) },
+    },
+    claim: {
+      method: 'POST' as const,
+      path: '/api/threads/:id/claim' as const,
+      responses: { 200: z.custom<typeof emailThreads.$inferSelect>() },
+    },
+    assign: {
+      method: 'POST' as const,
+      path: '/api/threads/:id/assign' as const,
+      input: z.object({ userId: z.number() }),
+      responses: { 200: z.custom<typeof emailThreads.$inferSelect>() },
+    },
+    unassign: {
+      method: 'POST' as const,
+      path: '/api/threads/:id/unassign' as const,
+      responses: { 200: z.custom<typeof emailThreads.$inferSelect>() },
+    },
+    updateStatus: {
+      method: 'PATCH' as const,
+      path: '/api/threads/:id/status' as const,
+      input: z.object({ status: z.string() }),
+      responses: { 200: z.custom<typeof emailThreads.$inferSelect>() },
+    },
+    notes: {
+      list: { method: 'GET' as const, path: '/api/threads/:id/notes' as const, responses: { 200: z.array(z.custom<NoteWithUser>()) } },
+      create: {
+        method: 'POST' as const,
+        path: '/api/threads/:id/notes' as const,
+        input: z.object({ body: z.string().min(1) }),
+        responses: { 201: z.custom<NoteWithUser>() },
+      },
+    },
+    activity: {
+      method: 'GET' as const,
+      path: '/api/threads/:id/activity' as const,
+      responses: { 200: z.array(z.custom<ActivityWithUser>()) },
     },
   },
 

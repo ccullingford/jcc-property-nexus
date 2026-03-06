@@ -1,0 +1,242 @@
+Build Chunk 3 of the Property Management Operations Platform.
+
+Chunks 1 and 2 are already complete. Do not rebuild the foundation or inbox read experience. Extend the existing application.
+
+This chunk is ONLY for the **Shared Inbox Action Workflow**.
+
+## Required stack
+Keep the existing stack exactly as-is:
+- Frontend: React
+- Backend: Node.js
+- Database: Postgres
+
+Do not replace or re-architect the stack.
+
+## Goal of Chunk 3
+Allow staff to actively work shared mailbox threads inside the app.
+
+This chunk should make the inbox operational for team use by adding:
+- thread claiming
+- thread assignment
+- thread status changes
+- internal notes
+- activity logging
+
+Do NOT build tasks, contacts, issues, telephony, or AI in this chunk.
+
+## What this chunk must deliver
+1. claim thread workflow
+2. assign thread workflow
+3. update thread status workflow
+4. internal notes on threads
+5. thread activity log
+6. backend APIs and services for these actions
+7. frontend UI for these actions inside the existing inbox experience
+
+## Important constraints
+- Do NOT rebuild Chunks 1 or 2
+- Do NOT replace the existing inbox UI
+- Do NOT build reply/send yet unless already partially present and required for stability
+- Do NOT build tasks yet
+- Do NOT build contacts, issues, RingEX, or AI
+- Internal notes must be staff-only and never treated as outbound email content
+- Shared mailbox workflow remains the priority
+
+## Architecture requirements
+
+### Backend
+Extend the existing Node backend with services such as:
+- `threadAssignmentService`
+- `threadStatusService`
+- `noteService`
+- `activityLogService`
+
+Responsibilities:
+
+#### threadAssignmentService
+- claim a thread for the current user
+- assign a thread to another user
+- unassign a thread if needed
+- enforce clean rules for assignment state
+
+#### threadStatusService
+- update thread status
+- validate allowed statuses
+- log status changes
+
+#### noteService
+- create and retrieve internal notes for threads
+- ensure notes are staff-only application data, not email data
+
+#### activityLogService
+- record thread-related events
+- support timeline/history display in thread view
+
+### API endpoints
+Create or extend backend endpoints such as:
+
+- `POST /api/threads/:id/claim`
+- `POST /api/threads/:id/assign`
+- `POST /api/threads/:id/unassign`
+- `PATCH /api/threads/:id/status`
+- `GET /api/threads/:id/notes`
+- `POST /api/threads/:id/notes`
+- `GET /api/threads/:id/activity`
+
+## Database requirements
+
+Add migrations for the following.
+
+### Update `email_threads`
+Ensure support for:
+- `assigned_user_id` nullable
+- `status`
+- `updated_at`
+
+Allowed statuses for this chunk:
+- `Open`
+- `Waiting`
+- `Closed`
+- `Archived`
+
+### thread_notes
+Fields:
+- `id`
+- `thread_id`
+- `user_id`
+- `body`
+- `created_at`
+- `updated_at`
+
+### activity_log
+Fields:
+- `id`
+- `entity_type`
+- `entity_id`
+- `action`
+- `user_id`
+- `metadata` JSON
+- `created_at`
+
+Use activity log entries for actions such as:
+- thread claimed
+- thread assigned
+- thread unassigned
+- thread status changed
+- internal note added
+
+Add proper foreign keys and indexes.
+
+## Workflow rules
+
+### Claim thread
+- current user can claim an unassigned thread
+- claiming sets `assigned_user_id` to current user
+- log activity
+
+### Assign thread
+- authorized user can assign thread to another user
+- log activity
+
+### Unassign thread
+- authorized user can remove assignee
+- log activity
+
+### Status change
+- user can change thread status
+- log old and new status in activity metadata
+
+### Internal notes
+- notes belong to the thread
+- notes are visible only inside the app
+- notes are never synced to Outlook/Microsoft Graph as email content
+
+## Frontend requirements
+
+Extend the existing Inbox and thread detail experience.
+
+### Thread actions UI
+In thread detail view, add:
+- Claim button
+- Assign control
+- Unassign action if applicable
+- Status dropdown or segmented control
+- Add internal note form
+
+### Assignee display
+Show:
+- current assignee
+- unassigned state clearly
+
+### Notes panel
+Inside the thread view, display:
+- note list
+- note author
+- timestamp
+- add note form
+
+### Activity panel or section
+Display thread activity history such as:
+- claimed by Chris
+- status changed to Waiting
+- note added
+
+This can be a dedicated section in the thread view.
+
+### UX requirements
+The UI should make team workflow obvious and efficient:
+- clear ownership state
+- quick status updates
+- easy note-taking
+- visible action history
+
+## Authorization and user handling
+Use the authenticated user from the existing system.
+
+Support:
+- assigning to users from the internal user list
+- showing current signed-in user in actions
+- basic permissions based on role if simple and already available
+
+At minimum:
+- staff can claim threads
+- managers/admins can assign threads to others
+- exact permission model can remain simple for this chunk, but structure it cleanly
+
+## Code quality requirements
+- keep backend business logic out of controllers
+- use service modules
+- use migrations for schema changes
+- keep React components modular
+- use typed API models where possible
+- preserve portability for future hosting beyond Replit
+
+## Explicitly do not build yet
+Do not build any of the following in this chunk:
+- task creation
+- task dashboard
+- contacts
+- issue/case creation
+- property linking
+- RingEX integration
+- AI features
+
+## Definition of done
+Chunk 3 is complete when:
+1. users can claim threads
+2. authorized users can assign or unassign threads
+3. users can change thread status
+4. users can add internal notes to a thread
+5. thread activity history is visible
+6. all actions persist in Postgres
+7. the inbox remains stable and ready for Chunk 4
+
+## Deliverables
+Produce:
+- backend services for assignment, status, notes, and activity
+- Postgres migrations for notes and activity log
+- thread action APIs
+- updated inbox/thread UI
+- brief explanation of workflow and permission decisions
+
+Again: this chunk is only the shared inbox action workflow. Build it as a real team workflow layer on top of the existing synced inbox.

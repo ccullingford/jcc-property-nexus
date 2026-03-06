@@ -199,8 +199,8 @@ export class DatabaseStorage implements IStorage {
   async deleteTask(id: number) { await db.delete(tasks).where(eq(tasks.id, id)); }
 
   // Notes
-  async getNotesByThread(threadId: number) { return db.select().from(notes).where(eq(notes.threadId, threadId)); }
-  async getNotesByIssue(issueId: number) { return db.select().from(notes).where(eq(notes.issueId, issueId)); }
+  async getNotesByThread(threadId: number) { return db.select().from(notes).where(eq(notes.threadId, threadId)).orderBy(notes.createdAt); }
+  async getNotesByIssue(issueId: number) { return db.select().from(notes).where(eq(notes.issueId, issueId)).orderBy(notes.createdAt); }
   async createNote(n: InsertNote) { const [r] = await db.insert(notes).values(n).returning(); return r; }
 
   // Calls
@@ -211,7 +211,9 @@ export class DatabaseStorage implements IStorage {
   // Activity Log
   async logActivity(e: InsertActivityLog) { const [r] = await db.insert(activityLog).values(e).returning(); return r; }
   async getActivityByEntity(entityType: string, entityId: number) {
-    return db.select().from(activityLog).where(eq(activityLog.entityType, entityType));
+    return db.select().from(activityLog)
+      .where(and(eq(activityLog.entityType, entityType), eq(activityLog.entityId, entityId)))
+      .orderBy(desc(activityLog.createdAt));
   }
 }
 
