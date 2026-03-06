@@ -166,9 +166,15 @@ async function graphGet<T>(path: string, token: string): Promise<T> {
 // ── Public Graph operations ──────────────────────────────────────────────────
 
 /**
- * Fetch messages from a shared mailbox inbox.
- * Uses /users/{mailboxAddress}/messages so it works for both delegated
- * (user with Full Access grant) and application permission paths.
+ * Fetch messages from a shared mailbox.
+ * Tries /mailFolders/inbox/messages first (standard path); falls back to
+ * /messages for shared mailboxes that don't expose the standard folder tree.
+ *
+ * Requires one of:
+ *   - Mail.Read *application* permission (app-only / client credentials) with
+ *     admin consent granted in Azure AD, OR
+ *   - Mail.ReadShared delegated permission AND the connector account must have
+ *     Full Access on the shared mailbox (granted by an Exchange/M365 admin).
  */
 export async function fetchMailboxMessages(
   mailboxAddress: string,
@@ -190,12 +196,40 @@ export async function fetchMailboxMessages(
     "body",
   ].join(",");
 
-  const path =
-    `/users/${encodeURIComponent(mailboxAddress)}/mailFolders/inbox/messages` +
-    `?$top=${top}&$skip=${skip}&$select=${select}&$orderby=receivedDateTime desc`;
+  const encoded = encodeURIComponent(mailboxAddress);
+  const query = `?$top=${top}&$skip=${skip}&$select=${select}&$orderby=receivedDateTime desc`;
 
-  const data = await graphGet<{ value: GraphMessage[] }>(path, token);
-  return data.value;
+  // Try the inbox folder path first, then fall back to the flat messages endpoint.
+  // Some shared-mailbox configurations (e.g. room/resource mailboxes) 403 on
+  // mailFolders/inbox but succeed on /messages.
+  const paths = [
+    `/users/${encoded}/mailFolders/inbox/messages${query}`,
+    `/users/${encoded}/messages${query}`,
+  ];
+
+  let lastErr: Error | null = null;
+  for (const path of paths) {
+    try {
+      const data = await graphGet<{ value: GraphMessage[] }>(path, token);
+      return data.value;
+    } catch (err: any) {
+      lastErr = err;
+      // Only fall through on 403/404 — other errors (network, 500) should surface immediately
+      if (!err.message.includes("403") && !err.message.includes("404")) throw err;
+    }
+  }
+
+  // Both paths failed — surface a clear, actionable message
+  const base = lastErr?.message ?? "Unknown Graph error";
+  if (base.includes("403")) {
+    throw new Error(
+      `Access denied to mailbox "${mailboxAddress}". ` +
+      `To fix this, choose one option: ` +
+      `(A) App-only: In Azure AD, add the Mail.Read *Application* permission to your app registration and have a Global Admin grant consent. ` +
+      `(B) Connector: In Microsoft 365 Admin, grant the Outlook connector account Full Access on this shared mailbox, then reconnect the integration.`
+    );
+  }
+  throw new Error(base);
 }
 
 /**
