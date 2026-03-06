@@ -1,15 +1,14 @@
 /**
  * Microsoft Graph API client service.
  *
- * Authentication: Uses the Replit Outlook connector OAuth token when
- * available. Falls back to Azure AD client-credentials (app-only) when
- * MICROSOFT_TENANT_ID + MICROSOFT_CLIENT_ID + MICROSOFT_CLIENT_SECRET are set.
+ * Authentication priority:
+ * 1. Replit Outlook connector (delegated OAuth via REPLIT_CONNECTORS_HOSTNAME)
+ * 2. Azure AD app-only (client credentials) when MICROSOFT_TENANT_ID + CLIENT_ID + CLIENT_SECRET are set
  *
- * Shared-mailbox reads use the /users/{email}/messages endpoint, which
- * requires either:
- *   - Delegated access where the authenticated user has Full Access or
- *     Read rights on the shared mailbox (connector path), OR
- *   - Application permission Mail.Read with admin consent (app-only path).
+ * Shared-mailbox reads use /users/{email}/messages.
+ * The delegated path requires the authenticated user to have Full Access on the mailbox,
+ * OR the connector account to have a delegated access grant.
+ * The app-only path requires Mail.Read application permission with admin consent.
  */
 
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
@@ -34,7 +33,69 @@ export interface GraphAttachment {
   size: number;
 }
 
-// ── Token acquisition ────────────────────────────────────────────────────────
+// ── Replit Outlook connector token ───────────────────────────────────────────
+
+interface ConnectorSettings {
+  settings: {
+    access_token?: string;
+    expires_at?: string;
+    oauth?: { credentials?: { access_token?: string } };
+  };
+}
+
+let _connectorCache: ConnectorSettings | null = null;
+
+async function getConnectorToken(): Promise<string | null> {
+  // Check cached token is still valid (with 60-second buffer)
+  if (
+    _connectorCache?.settings?.expires_at &&
+    new Date(_connectorCache.settings.expires_at).getTime() > Date.now() + 60_000
+  ) {
+    const cached =
+      _connectorCache.settings.access_token ||
+      _connectorCache.settings.oauth?.credentials?.access_token;
+    if (cached) return cached;
+  }
+
+  const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME;
+  if (!hostname) return null;
+
+  const xReplitToken = process.env.REPL_IDENTITY
+    ? "repl " + process.env.REPL_IDENTITY
+    : process.env.WEB_REPL_RENEWAL
+    ? "depl " + process.env.WEB_REPL_RENEWAL
+    : null;
+
+  if (!xReplitToken) return null;
+
+  try {
+    const res = await fetch(
+      `https://${hostname}/api/v2/connection?include_secrets=true&connector_names=outlook`,
+      {
+        headers: {
+          Accept: "application/json",
+          "X-Replit-Token": xReplitToken,
+        },
+      }
+    );
+
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    _connectorCache = data.items?.[0] ?? null;
+    if (!_connectorCache) return null;
+
+    const token =
+      _connectorCache.settings.access_token ||
+      _connectorCache.settings.oauth?.credentials?.access_token;
+
+    return token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// ── App-only (client credentials) token ─────────────────────────────────────
 
 let _appOnlyTokenCache: { token: string; expiresAt: number } | null = null;
 
@@ -43,7 +104,7 @@ async function getAppOnlyToken(): Promise<string> {
     process.env;
   if (!MICROSOFT_TENANT_ID || !MICROSOFT_CLIENT_ID || !MICROSOFT_CLIENT_SECRET) {
     throw new Error(
-      "Microsoft Graph credentials not configured. Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET."
+      "Microsoft Graph credentials not configured. Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, or connect the Outlook integration."
     );
   }
 
@@ -77,22 +138,23 @@ async function getAppOnlyToken(): Promise<string> {
 }
 
 /**
- * Get a valid access token. Tries the Replit connector first,
- * then falls back to the app-only path.
+ * Get a valid access token.
+ * Tries Replit Outlook connector first, then app-only credentials.
  */
-async function getAccessToken(connectorToken?: string): Promise<string> {
+export async function getAccessToken(): Promise<string> {
+  const connectorToken = await getConnectorToken();
   if (connectorToken) return connectorToken;
   return getAppOnlyToken();
 }
 
-// ── Graph helpers ────────────────────────────────────────────────────────────
+// ── Graph HTTP helpers ───────────────────────────────────────────────────────
 
-async function graphGet<T>(
-  path: string,
-  token: string
-): Promise<T> {
+async function graphGet<T>(path: string, token: string): Promise<T> {
   const res = await fetch(`${GRAPH_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
   });
   if (!res.ok) {
     const text = await res.text();
@@ -104,14 +166,15 @@ async function graphGet<T>(
 // ── Public Graph operations ──────────────────────────────────────────────────
 
 /**
- * Fetch messages from a mailbox inbox, paged.
- * For shared mailboxes use the mailbox email as `mailboxAddress`.
+ * Fetch messages from a shared mailbox inbox.
+ * Uses /users/{mailboxAddress}/messages so it works for both delegated
+ * (user with Full Access grant) and application permission paths.
  */
 export async function fetchMailboxMessages(
   mailboxAddress: string,
-  options: { top?: number; skip?: number; connectorToken?: string } = {}
+  options: { top?: number; skip?: number } = {}
 ): Promise<GraphMessage[]> {
-  const token = await getAccessToken(options.connectorToken);
+  const token = await getAccessToken();
   const top = options.top ?? 50;
   const skip = options.skip ?? 0;
   const select = [
@@ -127,34 +190,35 @@ export async function fetchMailboxMessages(
     "body",
   ].join(",");
 
-  const path = `/users/${encodeURIComponent(mailboxAddress)}/mailFolders/inbox/messages?$top=${top}&$skip=${skip}&$select=${select}&$orderby=receivedDateTime desc`;
+  const path =
+    `/users/${encodeURIComponent(mailboxAddress)}/mailFolders/inbox/messages` +
+    `?$top=${top}&$skip=${skip}&$select=${select}&$orderby=receivedDateTime desc`;
+
   const data = await graphGet<{ value: GraphMessage[] }>(path, token);
   return data.value;
 }
 
 /**
- * Fetch attachment metadata for a message.
+ * Fetch attachment metadata for a specific message.
  */
 export async function fetchMessageAttachments(
   mailboxAddress: string,
-  messageId: string,
-  connectorToken?: string
+  messageId: string
 ): Promise<GraphAttachment[]> {
-  const token = await getAccessToken(connectorToken);
-  const path = `/users/${encodeURIComponent(mailboxAddress)}/messages/${messageId}/attachments?$select=id,name,contentType,size`;
+  const token = await getAccessToken();
+  const path =
+    `/users/${encodeURIComponent(mailboxAddress)}/messages/${messageId}/attachments` +
+    `?$select=id,name,contentType,size`;
   const data = await graphGet<{ value: GraphAttachment[] }>(path, token);
   return data.value;
 }
 
 /**
- * Test connectivity by reading the mailbox profile.
+ * Test connectivity to a mailbox.
  */
-export async function testMailboxAccess(
-  mailboxAddress: string,
-  connectorToken?: string
-): Promise<boolean> {
+export async function testMailboxAccess(mailboxAddress: string): Promise<boolean> {
   try {
-    const token = await getAccessToken(connectorToken);
+    const token = await getAccessToken();
     await graphGet(`/users/${encodeURIComponent(mailboxAddress)}`, token);
     return true;
   } catch {
@@ -163,10 +227,18 @@ export async function testMailboxAccess(
 }
 
 /**
- * Returns true if Graph credentials are configured (any method).
+ * Returns true if any form of Graph auth is available.
+ * Connector availability is determined at runtime; app-only requires env vars.
  */
 export function isGraphConfigured(): boolean {
-  const { MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET } =
-    process.env;
-  return !!(MICROSOFT_TENANT_ID && MICROSOFT_CLIENT_ID && MICROSOFT_CLIENT_SECRET);
+  const hasConnector = !!(
+    process.env.REPLIT_CONNECTORS_HOSTNAME &&
+    (process.env.REPL_IDENTITY || process.env.WEB_REPL_RENEWAL)
+  );
+  const hasAppOnly = !!(
+    process.env.MICROSOFT_TENANT_ID &&
+    process.env.MICROSOFT_CLIENT_ID &&
+    process.env.MICROSOFT_CLIENT_SECRET
+  );
+  return hasConnector || hasAppOnly;
 }

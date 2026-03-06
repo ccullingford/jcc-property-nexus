@@ -354,11 +354,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── Graph Status ────────────────────────────────────────────────────────────
   app.get(api.graph.status.path, (_req, res) => {
     const configured = isGraphConfigured();
+    const hasConnector = !!(
+      process.env.REPLIT_CONNECTORS_HOSTNAME &&
+      (process.env.REPL_IDENTITY || process.env.WEB_REPL_RENEWAL)
+    );
+    const hasAppOnly = !!(
+      process.env.MICROSOFT_TENANT_ID &&
+      process.env.MICROSOFT_CLIENT_ID &&
+      process.env.MICROSOFT_CLIENT_SECRET
+    );
+    const method = hasConnector ? "Replit Outlook connector" : hasAppOnly ? "app-only credentials" : null;
     res.json({
       configured,
+      method,
       message: configured
-        ? "Microsoft Graph credentials are configured. Sync is ready."
-        : "Microsoft Graph is not configured. Set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, and MICROSOFT_CLIENT_SECRET to enable sync.",
+        ? `Microsoft Graph is configured via ${method}. Sync is ready.`
+        : "Microsoft Graph is not configured. Connect the Outlook integration or set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, and MICROSOFT_CLIENT_SECRET.",
     });
   });
 

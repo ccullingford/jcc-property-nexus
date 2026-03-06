@@ -24,6 +24,7 @@ import {
   fetchMessageAttachments,
   type GraphMessage,
 } from "./graphService";
+// Uses Replit Outlook connector (REPLIT_CONNECTORS_HOSTNAME) or app-only credentials
 
 export interface SyncResult {
   mailboxId: number;
@@ -33,10 +34,7 @@ export interface SyncResult {
   errors: string[];
 }
 
-export async function syncMailbox(
-  mailbox: Mailbox,
-  connectorToken?: string
-): Promise<SyncResult> {
+export async function syncMailbox(mailbox: Mailbox): Promise<SyncResult> {
   const result: SyncResult = {
     mailboxId: mailbox.id,
     mailboxName: mailbox.name,
@@ -52,10 +50,7 @@ export async function syncMailbox(
 
   let graphMessages: GraphMessage[];
   try {
-    graphMessages = await fetchMailboxMessages(mailbox.microsoftMailboxId, {
-      top: 100,
-      connectorToken,
-    });
+    graphMessages = await fetchMailboxMessages(mailbox.microsoftMailboxId, { top: 100 });
   } catch (err: any) {
     result.errors.push(`Graph fetch failed: ${err.message}`);
     return result;
@@ -166,8 +161,7 @@ export async function syncMailbox(
             try {
               const graphAttachments = await fetchMessageAttachments(
                 mailbox.microsoftMailboxId!,
-                gMsg.id,
-                connectorToken
+                gMsg.id
               );
               for (const att of graphAttachments) {
                 await db

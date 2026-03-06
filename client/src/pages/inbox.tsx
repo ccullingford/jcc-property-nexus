@@ -62,26 +62,31 @@ function formatBytes(bytes: number): string {
 
 // ─── Graph status banner ──────────────────────────────────────────────────────
 function GraphStatusBanner() {
-  const { data } = useQuery<{ configured: boolean; message: string }>({
+  const { data } = useQuery<{ configured: boolean; method: string | null; message: string }>({
     queryKey: ["/api/graph/status"],
   });
 
-  if (!data || data.configured) return null;
+  if (!data) return null;
 
-  return (
-    <div
-      className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs"
-      data-testid="banner-graph-not-configured"
-    >
-      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
-      <span>
-        Microsoft Graph is not configured — email sync is unavailable. Set{" "}
-        <code className="font-mono bg-amber-100 px-1 rounded">MICROSOFT_TENANT_ID</code>,{" "}
-        <code className="font-mono bg-amber-100 px-1 rounded">MICROSOFT_CLIENT_ID</code>, and{" "}
-        <code className="font-mono bg-amber-100 px-1 rounded">MICROSOFT_CLIENT_SECRET</code> to enable it.
-      </span>
-    </div>
-  );
+  if (!data.configured) {
+    return (
+      <div
+        className="flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs"
+        data-testid="banner-graph-not-configured"
+      >
+        <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+        <span>
+          Microsoft Graph is not connected — email sync is unavailable. Connect the Outlook
+          integration or set{" "}
+          <code className="font-mono bg-amber-100 px-1 rounded">MICROSOFT_TENANT_ID</code>,{" "}
+          <code className="font-mono bg-amber-100 px-1 rounded">MICROSOFT_CLIENT_ID</code>, and{" "}
+          <code className="font-mono bg-amber-100 px-1 rounded">MICROSOFT_CLIENT_SECRET</code>.
+        </span>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 // ─── Thread list item ─────────────────────────────────────────────────────────
