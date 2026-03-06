@@ -132,7 +132,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       codeChallenge: challenge,
     });
 
-    return res.redirect(authUrl);
+    req.session.save((saveErr) => {
+      if (saveErr) {
+        console.error("[auth] Session save error before OAuth redirect:", saveErr);
+        return res.redirect("/login?error=session_error");
+      }
+      return res.redirect(authUrl);
+    });
   });
 
   // ─── Auth: Microsoft OAuth callback ──────────────────────────────────────
@@ -210,7 +216,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       req.session.userId = user.id;
       req.session.userRole = user.role;
 
-      return res.redirect("/inbox");
+      req.session.save((saveErr) => {
+        if (saveErr) {
+          console.error("[auth] Session save error:", saveErr);
+          return res.redirect("/login?error=session_error");
+        }
+        return res.redirect("/inbox");
+      });
     } catch (err: any) {
       console.error("[auth] OAuth callback error:", err.message);
       return res.redirect("/login?error=auth_failed");
