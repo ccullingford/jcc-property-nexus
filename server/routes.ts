@@ -259,6 +259,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       req.session.destroy(() => {});
       return res.status(401).json({ message: "User not found" });
     }
+    req.session.userRole = user.role;
     res.json(user);
   });
 
