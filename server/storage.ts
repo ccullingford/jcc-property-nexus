@@ -289,11 +289,12 @@ export class DatabaseStorage implements IStorage {
     return enriched;
   }
 
-  async getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string }): Promise<TaskWithMeta[]> {
+  async getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string; contactId?: number }): Promise<TaskWithMeta[]> {
     const conditions = [];
     if (options.assignedUserId !== undefined) conditions.push(eq(tasks.assignedUserId, options.assignedUserId));
     if (options.threadId !== undefined) conditions.push(eq(tasks.threadId, options.threadId));
     if (options.status !== undefined) conditions.push(eq(tasks.status, options.status));
+    if (options.contactId !== undefined) conditions.push(eq(tasks.contactId, options.contactId));
     if (options.overdue) {
       conditions.push(lt(tasks.dueDate, new Date()));
       conditions.push(notInArray(tasks.status, ["Completed", "Cancelled"]));

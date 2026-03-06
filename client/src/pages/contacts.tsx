@@ -1,25 +1,35 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
   Users, Search, Plus, Phone, Mail, Link2, MessageSquare,
-  CheckCircle2, Clock, X, ChevronRight,
+  CheckCircle2, Clock, X, ChevronRight, Upload, Filter,
+  GitMerge, AlertTriangle, ChevronDown, ChevronUp, Briefcase,
+  ArrowRight,
 } from "lucide-react";
-import type { ContactWithDetails, ContactTimelineItem } from "@shared/routes";
+import type { ContactWithDetails, ContactTimelineItem, IssueWithDetails, TaskWithMeta } from "@shared/routes";
 import { CONTACT_TYPES } from "@shared/routes";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
+interface DuplicatePair {
+  contact: ContactWithDetails & { threadCount: number; emailList: string[] };
+  duplicate: ContactWithDetails & { threadCount: number; emailList: string[] };
+  signal: string;
+}
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function contactTypeColor(type: string): "default" | "secondary" | "outline" {
   if (type === "Owner") return "default";
   if (type === "Tenant") return "secondary";
@@ -38,6 +48,39 @@ function relativeTime(ts: string): string {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function parseCSV(text: string): { headers: string[]; rows: Record<string, string>[] } {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length === 0) return { headers: [], rows: [] };
+  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
+  const rows = lines.slice(1).map(line => {
+    const values = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+    const row: Record<string, string> = {};
+    headers.forEach((h, i) => { row[h] = values[i] ?? ""; });
+    return row;
+  }).filter(r => Object.values(r).some(v => v));
+  return { headers, rows };
+}
+
+function autoDetectMapping(headers: string[]): Record<string, string> {
+  const lc = headers.map(h => h.toLowerCase());
+  const find = (...variants: string[]) => {
+    const h = lc.find(h => variants.some(v => h.includes(v)));
+    return h ? headers[lc.indexOf(h)] : "";
+  };
+  return {
+    displayName: find("display_name", "name", "full name", "fullname"),
+    firstName: find("first_name", "firstname", "first"),
+    lastName: find("last_name", "lastname", "last"),
+    primaryEmail: find("email", "primary_email", "e-mail"),
+    secondaryEmail: find("secondary_email", "email2", "alt_email"),
+    primaryPhone: find("phone", "primary_phone", "mobile"),
+    secondaryPhone: find("secondary_phone", "phone2", "alt_phone"),
+    contactType: find("type", "contact_type", "category"),
+    notes: find("notes", "note", "comments"),
+  };
+}
+
+// ─── Timeline item ────────────────────────────────────────────────────────────
 function TimelineItemRow({ item }: { item: ContactTimelineItem }) {
   const icon =
     item.type === "thread" ? <MessageSquare className="h-3.5 w-3.5 text-blue-500 shrink-0 mt-0.5" /> :
@@ -56,13 +99,7 @@ function TimelineItemRow({ item }: { item: ContactTimelineItem }) {
 }
 
 // ─── Create Contact Dialog ────────────────────────────────────────────────────
-
-interface CreateContactDialogProps {
-  open: boolean;
-  onClose: () => void;
-}
-
-function CreateContactDialog({ open, onClose }: CreateContactDialogProps) {
+function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast();
   const [displayName, setDisplayName] = useState("");
   const [contactType, setContactType] = useState("Other");
@@ -81,86 +118,40 @@ function CreateContactDialog({ open, onClose }: CreateContactDialogProps) {
     onError: (e: Error) => toast({ title: "Failed to create contact", description: e.message, variant: "destructive" }),
   });
 
-  function handleSubmit() {
-    if (!displayName.trim()) return;
-    mutation.mutate({
-      displayName: displayName.trim(),
-      contactType,
-      primaryEmail: primaryEmail.trim() || null,
-      primaryPhone: primaryPhone.trim() || null,
-      notes: notes.trim() || null,
-    });
-  }
-
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-sm">
-        <DialogHeader>
-          <DialogTitle>New Contact</DialogTitle>
-        </DialogHeader>
+        <DialogHeader><DialogTitle>New Contact</DialogTitle></DialogHeader>
         <div className="space-y-3 py-1">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Full name *</label>
-            <Input
-              value={displayName}
-              onChange={e => setDisplayName(e.target.value)}
-              placeholder="Jane Smith"
-              data-testid="input-contact-name"
-              onKeyDown={e => e.key === "Enter" && handleSubmit()}
-              autoFocus
-            />
+            <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jane Smith" data-testid="input-contact-name" autoFocus onKeyDown={e => e.key === "Enter" && !mutation.isPending && displayName.trim() && mutation.mutate({ displayName: displayName.trim(), contactType, primaryEmail: primaryEmail.trim() || null, primaryPhone: primaryPhone.trim() || null, notes: notes.trim() || null })} />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
             <Select value={contactType} onValueChange={setContactType}>
-              <SelectTrigger className="h-9" data-testid="select-contact-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectContent>
+              <SelectTrigger className="h-9" data-testid="select-contact-type"><SelectValue /></SelectTrigger>
+              <SelectContent>{CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
-              <Input
-                type="email"
-                value={primaryEmail}
-                onChange={e => setPrimaryEmail(e.target.value)}
-                placeholder="jane@example.com"
-                data-testid="input-contact-email"
-              />
+              <Input type="email" value={primaryEmail} onChange={e => setPrimaryEmail(e.target.value)} placeholder="jane@example.com" data-testid="input-contact-email" />
             </div>
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Phone</label>
-              <Input
-                value={primaryPhone}
-                onChange={e => setPrimaryPhone(e.target.value)}
-                placeholder="+1 (555) 000-0000"
-                data-testid="input-contact-phone"
-              />
+              <Input value={primaryPhone} onChange={e => setPrimaryPhone(e.target.value)} placeholder="+1 (555) 000-0000" data-testid="input-contact-phone" />
             </div>
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Notes</label>
-            <Textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              rows={2}
-              className="text-sm resize-none"
-              data-testid="input-contact-notes"
-            />
+            <Textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2} className="text-sm resize-none" data-testid="input-contact-notes" />
           </div>
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose} data-testid="button-cancel-contact">Cancel</Button>
-          <Button
-            size="sm"
-            onClick={handleSubmit}
-            disabled={!displayName.trim() || mutation.isPending}
-            data-testid="button-submit-contact"
-          >
+          <Button size="sm" onClick={() => mutation.mutate({ displayName: displayName.trim(), contactType, primaryEmail: primaryEmail.trim() || null, primaryPhone: primaryPhone.trim() || null, notes: notes.trim() || null })} disabled={!displayName.trim() || mutation.isPending} data-testid="button-submit-contact">
             {mutation.isPending ? "Creating…" : "Create Contact"}
           </Button>
         </DialogFooter>
@@ -169,94 +160,321 @@ function CreateContactDialog({ open, onClose }: CreateContactDialogProps) {
   );
 }
 
-// ─── Add Phone Dialog ─────────────────────────────────────────────────────────
-
+// ─── Add Phone / Email Dialogs ────────────────────────────────────────────────
 function AddPhoneDialog({ contactId, open, onClose }: { contactId: number; open: boolean; onClose: () => void }) {
   const { toast } = useToast();
   const [phone, setPhone] = useState("");
   const [label, setLabel] = useState("Mobile");
-
   const mutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiRequest("POST", `/api/contacts/${contactId}/phones`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      toast({ title: "Phone added" });
-      onClose();
-      setPhone(""); setLabel("Mobile");
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] }); queryClient.invalidateQueries({ queryKey: ["/api/contacts"] }); toast({ title: "Phone added" }); onClose(); setPhone(""); setLabel("Mobile"); },
     onError: (e: Error) => toast({ title: "Failed to add phone", description: e.message, variant: "destructive" }),
   });
-
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-xs">
         <DialogHeader><DialogTitle>Add Phone Number</DialogTitle></DialogHeader>
         <div className="space-y-3 py-1">
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Number</label>
-            <Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+1 (555) 000-0000" data-testid="input-add-phone" autoFocus />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Label</label>
-            <Select value={label} onValueChange={setLabel}>
-              <SelectTrigger data-testid="select-phone-label"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {["Mobile", "Office", "Home", "Dispatch", "Other"].map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+          <div><label className="text-xs font-medium text-muted-foreground mb-1 block">Number</label><Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+1 (555) 000-0000" data-testid="input-add-phone" autoFocus /></div>
+          <div><label className="text-xs font-medium text-muted-foreground mb-1 block">Label</label><Select value={label} onValueChange={setLabel}><SelectTrigger data-testid="select-phone-label"><SelectValue /></SelectTrigger><SelectContent>{["Mobile", "Office", "Home", "Dispatch", "Other"].map(l => <SelectItem key={l} value={l}>{l}</SelectItem>)}</SelectContent></Select></div>
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => mutation.mutate({ phoneNumber: phone.trim(), label, isPrimary: false })} disabled={!phone.trim() || mutation.isPending} data-testid="button-add-phone-submit">
-            {mutation.isPending ? "Adding…" : "Add Phone"}
-          </Button>
+          <Button size="sm" onClick={() => mutation.mutate({ phoneNumber: phone.trim(), label, isPrimary: false })} disabled={!phone.trim() || mutation.isPending} data-testid="button-add-phone-submit">{mutation.isPending ? "Adding…" : "Add Phone"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
-
-// ─── Add Email Dialog ─────────────────────────────────────────────────────────
 
 function AddEmailDialog({ contactId, open, onClose }: { contactId: number; open: boolean; onClose: () => void }) {
   const { toast } = useToast();
   const [email, setEmail] = useState("");
-
   const mutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiRequest("POST", `/api/contacts/${contactId}/emails`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      toast({ title: "Email added" });
-      onClose();
-      setEmail("");
-    },
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] }); queryClient.invalidateQueries({ queryKey: ["/api/contacts"] }); toast({ title: "Email added" }); onClose(); setEmail(""); },
     onError: (e: Error) => toast({ title: "Failed to add email", description: e.message, variant: "destructive" }),
   });
-
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-xs">
         <DialogHeader><DialogTitle>Add Email Address</DialogTitle></DialogHeader>
-        <div className="py-1">
-          <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
-          <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" data-testid="input-add-email" autoFocus />
-        </div>
+        <div className="py-1"><label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label><Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" data-testid="input-add-email" autoFocus /></div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" onClick={() => mutation.mutate({ email: email.trim(), isPrimary: false })} disabled={!email.trim() || mutation.isPending} data-testid="button-add-email-submit">
-            {mutation.isPending ? "Adding…" : "Add Email"}
-          </Button>
+          <Button size="sm" onClick={() => mutation.mutate({ email: email.trim(), isPrimary: false })} disabled={!email.trim() || mutation.isPending} data-testid="button-add-email-submit">{mutation.isPending ? "Adding…" : "Add Email"}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
   );
 }
 
-// ─── Contact Detail Panel ─────────────────────────────────────────────────────
+// ─── Import Wizard ────────────────────────────────────────────────────────────
+const SYSTEM_FIELDS: { key: string; label: string }[] = [
+  { key: "displayName", label: "Display Name *" },
+  { key: "firstName", label: "First Name" },
+  { key: "lastName", label: "Last Name" },
+  { key: "primaryEmail", label: "Primary Email" },
+  { key: "secondaryEmail", label: "Secondary Email" },
+  { key: "primaryPhone", label: "Primary Phone" },
+  { key: "secondaryPhone", label: "Secondary Phone" },
+  { key: "contactType", label: "Contact Type" },
+  { key: "notes", label: "Notes" },
+];
 
+function ImportWizardDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState(1);
+  const [filename, setFilename] = useState("");
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rows, setRows] = useState<Record<string, string>[]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [mode, setMode] = useState<"create" | "upsert">("upsert");
+  const [preview, setPreview] = useState<any>(null);
+
+  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFilename(file.name);
+    const reader = new FileReader();
+    reader.onload = evt => {
+      const { headers, rows } = parseCSV(evt.target?.result as string);
+      setHeaders(headers);
+      setRows(rows);
+      setMapping(autoDetectMapping(headers));
+      setStep(2);
+    };
+    reader.readAsText(file);
+  };
+
+  const previewMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/contacts/import/preview", { rows, mapping }).then(r => r.json()),
+    onSuccess: (data) => { setPreview(data); setStep(3); },
+    onError: (e: Error) => toast({ title: "Preview failed", description: e.message, variant: "destructive" }),
+  });
+
+  const executeMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/contacts/import/execute", { rows, mapping, mode, filename }).then(r => r.json()),
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      toast({ title: `Import complete: ${data.imported} created, ${data.updated} updated, ${data.skipped} skipped` });
+      onClose();
+      reset();
+    },
+    onError: (e: Error) => toast({ title: "Import failed", description: e.message, variant: "destructive" }),
+  });
+
+  const reset = () => { setStep(1); setFilename(""); setHeaders([]); setRows([]); setMapping({}); setPreview(null); if (fileRef.current) fileRef.current.value = ""; };
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); reset(); } }}>
+      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Upload className="h-4 w-4" />
+            Import Contacts — Step {step} of 3
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* Step 1: Upload */}
+        {step === 1 && (
+          <div className="py-4">
+            <div
+              className="border-2 border-dashed border-border rounded-lg p-10 flex flex-col items-center justify-center gap-3 hover:border-primary/50 transition-colors cursor-pointer"
+              onClick={() => fileRef.current?.click()}
+              data-testid="csv-drop-zone"
+            >
+              <Upload className="h-8 w-8 text-muted-foreground/50" />
+              <p className="text-sm font-medium text-foreground">Click to select a CSV file</p>
+              <p className="text-xs text-muted-foreground">Supports: display_name, email, phone, contact_type, notes and more</p>
+            </div>
+            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} data-testid="input-csv-file" />
+          </div>
+        )}
+
+        {/* Step 2: Map columns */}
+        {step === 2 && (
+          <div className="py-2 space-y-4">
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">{rows.length} rows detected in <span className="font-medium text-foreground">{filename}</span></span>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Map CSV columns to fields</p>
+              {SYSTEM_FIELDS.map(f => (
+                <div key={f.key} className="grid grid-cols-2 gap-3 items-center">
+                  <label className="text-xs text-foreground">{f.label}</label>
+                  <Select value={mapping[f.key] ?? ""} onValueChange={v => setMapping(prev => ({ ...prev, [f.key]: v }))}>
+                    <SelectTrigger className="h-7 text-xs" data-testid={`mapping-${f.key}`}><SelectValue placeholder="— skip —" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">— skip —</SelectItem>
+                      {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t">
+              <div className="flex items-center gap-2">
+                <Label className="text-xs">Import mode</Label>
+                <Select value={mode} onValueChange={(v: any) => setMode(v)}>
+                  <SelectTrigger className="h-7 text-xs w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="create">Create new only</SelectItem>
+                    <SelectItem value="upsert">Create or update by email</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={reset}>Back</Button>
+              <Button size="sm" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending} data-testid="button-preview-import">
+                {previewMutation.isPending ? "Previewing…" : "Preview →"}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+
+        {/* Step 3: Preview & Import */}
+        {step === 3 && preview && (
+          <div className="py-2 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="rounded-lg border border-border p-3 text-center">
+                <p className="text-2xl font-bold text-green-600">{preview.valid.length}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Valid rows</p>
+              </div>
+              <div className="rounded-lg border border-border p-3 text-center">
+                <p className="text-2xl font-bold text-amber-500">{preview.existingMatches.length}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Will update</p>
+              </div>
+              <div className="rounded-lg border border-border p-3 text-center">
+                <p className="text-2xl font-bold text-red-500">{preview.invalid.length + preview.duplicatesInFile.length}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Skipped/Invalid</p>
+              </div>
+            </div>
+            {(preview.invalid.length > 0 || preview.duplicatesInFile.length > 0) && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-3 space-y-1">
+                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Issues found
+                </p>
+                {[...preview.invalid, ...preview.duplicatesInFile].slice(0, 5).map((row: any, i: number) => (
+                  <p key={i} className="text-xs text-amber-700 dark:text-amber-400">Row {row.rowIndex + 1}: {row.error}</p>
+                ))}
+                {(preview.invalid.length + preview.duplicatesInFile.length) > 5 && (
+                  <p className="text-xs text-amber-600">…and {preview.invalid.length + preview.duplicatesInFile.length - 5} more</p>
+                )}
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" size="sm" onClick={() => setStep(2)}>Back</Button>
+              <Button size="sm" onClick={() => executeMutation.mutate()} disabled={executeMutation.isPending || preview.valid.length === 0} data-testid="button-execute-import">
+                {executeMutation.isPending ? "Importing…" : `Import ${preview.valid.length} contacts`}
+              </Button>
+            </DialogFooter>
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Duplicates Dialog ────────────────────────────────────────────────────────
+function DuplicatesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [dismissed, setDismissed] = useState<Set<string>>(new Set());
+
+  const { data: pairs, isLoading, refetch } = useQuery<DuplicatePair[]>({
+    queryKey: ["/api/contacts/duplicates"],
+    queryFn: async () => {
+      const res = await fetch("/api/contacts/duplicates", { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    enabled: open,
+  });
+
+  const mergeMutation = useMutation({
+    mutationFn: ({ sourceId, targetId }: { sourceId: number; targetId: number }) =>
+      apiRequest("POST", "/api/contacts/merge", { sourceId, targetId }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
+      refetch();
+      toast({ title: "Contacts merged successfully" });
+    },
+    onError: (e: Error) => toast({ title: "Merge failed", description: e.message, variant: "destructive" }),
+  });
+
+  const visiblePairs = (pairs ?? []).filter(p => !dismissed.has(`${p.contact.id}-${p.duplicate.id}`));
+
+  return (
+    <Dialog open={open} onOpenChange={v => !v && onClose()}>
+      <DialogContent className="sm:max-w-[640px] max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <GitMerge className="h-4 w-4" />
+            Duplicate Contacts
+            {pairs && pairs.length > 0 && <Badge variant="secondary">{pairs.length} found</Badge>}
+          </DialogTitle>
+        </DialogHeader>
+
+        {isLoading ? (
+          <div className="py-8 space-y-3">
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        ) : visiblePairs.length === 0 ? (
+          <div className="py-12 text-center">
+            <CheckCircle2 className="h-8 w-8 text-green-500 mx-auto mb-2" />
+            <p className="text-sm font-medium text-foreground">No duplicates found</p>
+            <p className="text-xs text-muted-foreground mt-1">All contacts have unique email addresses.</p>
+          </div>
+        ) : (
+          <div className="space-y-4 py-2">
+            {visiblePairs.map(pair => (
+              <div key={`${pair.contact.id}-${pair.duplicate.id}`} className="rounded-lg border border-border p-4 space-y-3" data-testid={`duplicate-pair-${pair.contact.id}-${pair.duplicate.id}`}>
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <AlertTriangle className="h-3 w-3 text-amber-500" />
+                  {pair.signal}
+                </p>
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-3 items-start">
+                  <ContactCard contact={pair.contact} />
+                  <ArrowRight className="h-4 w-4 text-muted-foreground/50 mt-3 shrink-0" />
+                  <ContactCard contact={pair.duplicate} />
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <Button size="sm" variant="outline" className="flex-1 text-xs gap-1" onClick={() => mergeMutation.mutate({ sourceId: pair.duplicate.id, targetId: pair.contact.id })} disabled={mergeMutation.isPending} data-testid={`button-keep-left-${pair.contact.id}`}>
+                    Keep left, delete right
+                  </Button>
+                  <Button size="sm" variant="outline" className="flex-1 text-xs gap-1" onClick={() => mergeMutation.mutate({ sourceId: pair.contact.id, targetId: pair.duplicate.id })} disabled={mergeMutation.isPending} data-testid={`button-keep-right-${pair.contact.id}`}>
+                    Keep right, delete left
+                  </Button>
+                  <Button size="sm" variant="ghost" className="text-xs text-muted-foreground" onClick={() => setDismissed(prev => new Set([...Array.from(prev), `${pair.contact.id}-${pair.duplicate.id}`]))} data-testid={`button-skip-${pair.contact.id}`}>
+                    Skip
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ContactCard({ contact }: { contact: DuplicatePair["contact"] }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1 min-w-0">
+      <p className="text-sm font-medium text-foreground truncate">{contact.displayName}</p>
+      <Badge variant={contactTypeColor(contact.contactType)} className="text-xs h-4 px-1">{contact.contactType}</Badge>
+      {contact.emailList.map((e, i) => <p key={i} className="text-xs text-muted-foreground truncate">{e}</p>)}
+      {contact.primaryPhone && <p className="text-xs text-muted-foreground">{contact.primaryPhone}</p>}
+      <p className="text-xs text-muted-foreground/70">{contact.threadCount} thread{contact.threadCount !== 1 ? "s" : ""}</p>
+    </div>
+  );
+}
+
+// ─── Contact Detail Panel ─────────────────────────────────────────────────────
 function ContactDetail({ contactId }: { contactId: number }) {
   const { toast } = useToast();
   const [addPhoneOpen, setAddPhoneOpen] = useState(false);
@@ -264,6 +482,8 @@ function ContactDetail({ contactId }: { contactId: number }) {
   const [editingName, setEditingName] = useState(false);
   const [editName, setEditName] = useState("");
   const [editType, setEditType] = useState("");
+  const [showIssues, setShowIssues] = useState(true);
+  const [showTasks, setShowTasks] = useState(true);
 
   const { data: contact, isLoading } = useQuery<ContactWithDetails>({
     queryKey: ["/api/contacts", contactId],
@@ -281,6 +501,26 @@ function ContactDetail({ contactId }: { contactId: number }) {
       if (!res.ok) throw new Error(res.statusText);
       return res.json();
     },
+  });
+
+  const { data: linkedIssues } = useQuery<IssueWithDetails[]>({
+    queryKey: ["/api/issues", { contactId }],
+    queryFn: async () => {
+      const res = await fetch(`/api/issues?contactId=${contactId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    enabled: !!contactId,
+  });
+
+  const { data: linkedTasks } = useQuery<TaskWithMeta[]>({
+    queryKey: ["/api/tasks", { contactId }],
+    queryFn: async () => {
+      const res = await fetch(`/api/tasks?contactId=${contactId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    enabled: !!contactId,
   });
 
   const updateMutation = useMutation({
@@ -307,64 +547,30 @@ function ContactDetail({ contactId }: { contactId: number }) {
 
   if (!contact) return null;
 
-  function startEditName() {
-    setEditName(contact!.displayName);
-    setEditType(contact!.contactType);
-    setEditingName(true);
-  }
-
-  function saveEdit() {
-    updateMutation.mutate({ displayName: editName.trim(), contactType: editType });
-  }
-
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
+      {/* Header */}
       <div className="shrink-0 px-6 pt-6 pb-4 border-b border-border">
         {editingName ? (
           <div className="space-y-2">
-            <Input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              className="text-lg font-semibold"
-              data-testid="input-edit-name"
-              autoFocus
-              onKeyDown={e => e.key === "Enter" && saveEdit()}
-            />
+            <Input value={editName} onChange={e => setEditName(e.target.value)} className="text-lg font-semibold" data-testid="input-edit-name" autoFocus onKeyDown={e => e.key === "Enter" && updateMutation.mutate({ displayName: editName.trim(), contactType: editType })} />
             <Select value={editType} onValueChange={setEditType}>
-              <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-edit-type">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
-              </SelectContent>
+              <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-edit-type"><SelectValue /></SelectTrigger>
+              <SelectContent>{CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
             <div className="flex gap-2">
-              <Button size="sm" onClick={saveEdit} disabled={!editName.trim() || updateMutation.isPending} data-testid="button-save-name">
-                {updateMutation.isPending ? "Saving…" : "Save"}
-              </Button>
+              <Button size="sm" onClick={() => updateMutation.mutate({ displayName: editName.trim(), contactType: editType })} disabled={!editName.trim() || updateMutation.isPending} data-testid="button-save-name">{updateMutation.isPending ? "Saving…" : "Save"}</Button>
               <Button size="sm" variant="outline" onClick={() => setEditingName(false)} data-testid="button-cancel-edit">Cancel</Button>
             </div>
           </div>
         ) : (
           <div>
-            <button
-              className="group flex items-start gap-2 hover:opacity-80 transition-opacity text-left"
-              onClick={startEditName}
-              data-testid="button-edit-contact-name"
-            >
-              <h2 className="text-xl font-semibold text-foreground" data-testid="text-contact-name">
-                {contact.displayName}
-              </h2>
+            <button className="group flex items-start gap-2 hover:opacity-80 transition-opacity text-left" onClick={() => { setEditName(contact.displayName); setEditType(contact.contactType); setEditingName(true); }} data-testid="button-edit-contact-name">
+              <h2 className="text-xl font-semibold text-foreground" data-testid="text-contact-name">{contact.displayName}</h2>
             </button>
             <div className="flex items-center gap-2 mt-1.5">
-              <Badge variant={contactTypeColor(contact.contactType)} className="text-xs" data-testid="badge-contact-type">
-                {contact.contactType}
-              </Badge>
-              {contact.threadCount > 0 && (
-                <span className="text-xs text-muted-foreground" data-testid="text-thread-count">
-                  {contact.threadCount} thread{contact.threadCount !== 1 ? "s" : ""}
-                </span>
-              )}
+              <Badge variant={contactTypeColor(contact.contactType)} className="text-xs" data-testid="badge-contact-type">{contact.contactType}</Badge>
+              {contact.threadCount > 0 && <span className="text-xs text-muted-foreground" data-testid="text-thread-count">{contact.threadCount} thread{contact.threadCount !== 1 ? "s" : ""}</span>}
             </div>
           </div>
         )}
@@ -376,20 +582,8 @@ function ContactDetail({ contactId }: { contactId: number }) {
           {/* Email addresses */}
           <section>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <Mail className="h-3.5 w-3.5" />
-                Email
-              </p>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setAddEmailOpen(true)}
-                data-testid="button-add-email"
-              >
-                <Plus className="h-3 w-3 mr-0.5" />
-                Add
-              </Button>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><Mail className="h-3.5 w-3.5" />Email</p>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setAddEmailOpen(true)} data-testid="button-add-email"><Plus className="h-3 w-3 mr-0.5" />Add</Button>
             </div>
             <div className="space-y-1" data-testid="contact-emails-list">
               {contact.primaryEmail && !contact.emails.some(e => e.email === contact.primaryEmail) && (
@@ -398,9 +592,7 @@ function ContactDetail({ contactId }: { contactId: number }) {
                   <Badge variant="secondary" className="text-xs h-4 px-1">Primary</Badge>
                 </div>
               )}
-              {contact.emails.length === 0 && !contact.primaryEmail && (
-                <p className="text-xs text-muted-foreground" data-testid="no-emails">No email addresses.</p>
-              )}
+              {contact.emails.length === 0 && !contact.primaryEmail && <p className="text-xs text-muted-foreground" data-testid="no-emails">No email addresses.</p>}
               {contact.emails.map(e => (
                 <div key={e.id} className="flex items-center gap-2 py-1" data-testid={`email-${e.id}`}>
                   <span className="text-sm text-foreground">{e.email}</span>
@@ -415,20 +607,8 @@ function ContactDetail({ contactId }: { contactId: number }) {
           {/* Phone numbers */}
           <section>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-                <Phone className="h-3.5 w-3.5" />
-                Phone
-              </p>
-              <Button
-                size="sm"
-                variant="ghost"
-                className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-                onClick={() => setAddPhoneOpen(true)}
-                data-testid="button-add-phone"
-              >
-                <Plus className="h-3 w-3 mr-0.5" />
-                Add
-              </Button>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><Phone className="h-3.5 w-3.5" />Phone</p>
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => setAddPhoneOpen(true)} data-testid="button-add-phone"><Plus className="h-3 w-3 mr-0.5" />Add</Button>
             </div>
             <div className="space-y-1" data-testid="contact-phones-list">
               {contact.primaryPhone && !contact.phones.some(p => p.phoneNumber === contact.primaryPhone) && (
@@ -437,9 +617,7 @@ function ContactDetail({ contactId }: { contactId: number }) {
                   <Badge variant="secondary" className="text-xs h-4 px-1">Primary</Badge>
                 </div>
               )}
-              {contact.phones.length === 0 && !contact.primaryPhone && (
-                <p className="text-xs text-muted-foreground" data-testid="no-phones">No phone numbers.</p>
-              )}
+              {contact.phones.length === 0 && !contact.primaryPhone && <p className="text-xs text-muted-foreground" data-testid="no-phones">No phone numbers.</p>}
               {contact.phones.map(p => (
                 <div key={p.id} className="flex items-center gap-2 py-1" data-testid={`phone-${p.id}`}>
                   <span className="text-sm text-foreground">{p.phoneNumber}</span>
@@ -460,31 +638,83 @@ function ContactDetail({ contactId }: { contactId: number }) {
             </>
           )}
 
+          {/* Linked Issues */}
+          {linkedIssues && linkedIssues.length > 0 && (
+            <>
+              <Separator />
+              <section>
+                <button className="flex items-center justify-between w-full mb-2 group" onClick={() => setShowIssues(v => !v)} data-testid="section-issues-toggle">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Issues
+                    <Badge variant="secondary" className="h-4 px-1.5 text-xs">{linkedIssues.length}</Badge>
+                  </p>
+                  {showIssues ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                </button>
+                {showIssues && (
+                  <div className="space-y-1.5" data-testid="contact-issues-list">
+                    {linkedIssues.map(issue => (
+                      <div key={issue.id} className="flex items-center gap-2 py-1.5 px-2 rounded-md border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors" data-testid={`issue-row-${issue.id}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{issue.title}</p>
+                        </div>
+                        <Badge variant={issue.status === "Open" ? "default" : issue.status === "Closed" || issue.status === "Resolved" ? "secondary" : "outline"} className="text-xs h-4 px-1 shrink-0">{issue.status}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+
+          {/* Linked Tasks */}
+          {linkedTasks && linkedTasks.length > 0 && (
+            <>
+              <Separator />
+              <section>
+                <button className="flex items-center justify-between w-full mb-2 group" onClick={() => setShowTasks(v => !v)} data-testid="section-tasks-toggle">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                    <Briefcase className="h-3.5 w-3.5" />
+                    Tasks
+                    <Badge variant="secondary" className="h-4 px-1.5 text-xs">{linkedTasks.length}</Badge>
+                  </p>
+                  {showTasks ? <ChevronUp className="h-3.5 w-3.5 text-muted-foreground" /> : <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />}
+                </button>
+                {showTasks && (
+                  <div className="space-y-1.5" data-testid="contact-tasks-list">
+                    {linkedTasks.map(task => (
+                      <div key={task.id} className="flex items-center gap-2 py-1.5 px-2 rounded-md border border-border/50 bg-muted/20 hover:bg-muted/40 transition-colors" data-testid={`task-row-${task.id}`}>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium text-foreground truncate">{task.title}</p>
+                          {task.dueDate && <p className="text-xs text-muted-foreground">{new Date(task.dueDate).toLocaleDateString()}</p>}
+                        </div>
+                        <Badge variant={task.status === "Completed" ? "secondary" : task.status === "Open" ? "default" : "outline"} className="text-xs h-4 px-1 shrink-0">{task.status}</Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+
           <Separator />
 
-          {/* Timeline */}
+          {/* Activity Timeline */}
           <section>
             <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-1.5">
               <Link2 className="h-3.5 w-3.5" />
               Activity Timeline
-              {timeline && timeline.length > 0 && (
-                <Badge variant="secondary" className="h-4 px-1.5 text-xs">{timeline.length}</Badge>
-              )}
+              {timeline && timeline.length > 0 && <Badge variant="secondary" className="h-4 px-1.5 text-xs">{timeline.length}</Badge>}
             </p>
             {loadingTimeline ? (
               <div className="space-y-3">
                 <Skeleton className="h-14 w-full rounded" />
                 <Skeleton className="h-14 w-full rounded" />
-                <Skeleton className="h-14 w-full rounded" />
               </div>
             ) : !timeline || timeline.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-4" data-testid="timeline-empty">
-                No activity linked to this contact yet.
-              </p>
+              <p className="text-xs text-muted-foreground text-center py-4" data-testid="timeline-empty">No activity linked to this contact yet.</p>
             ) : (
-              <div data-testid="contact-timeline">
-                {timeline.map(item => <TimelineItemRow key={item.id} item={item} />)}
-              </div>
+              <div data-testid="contact-timeline">{timeline.map(item => <TimelineItemRow key={item.id} item={item} />)}</div>
             )}
           </section>
 
@@ -498,73 +728,115 @@ function ContactDetail({ contactId }: { contactId: number }) {
 }
 
 // ─── Contacts Page ─────────────────────────────────────────────────────────────
-
 export function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const { toast } = useToast();
+  const [importOpen, setImportOpen] = useState(false);
+  const [duplicatesOpen, setDuplicatesOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filterType, setFilterType] = useState("all");
+  const [filterHasThreads, setFilterHasThreads] = useState(false);
+  const [filterHasOpenIssues, setFilterHasOpenIssues] = useState(false);
+
+  const activeFilterCount = [filterType !== "all", filterHasThreads, filterHasOpenIssues].filter(Boolean).length;
+
+  const buildUrl = () => {
+    const params = new URLSearchParams();
+    if (searchQuery.trim()) params.set("q", searchQuery.trim());
+    if (filterType !== "all") params.set("contactType", filterType);
+    if (filterHasThreads) params.set("hasThreads", "true");
+    if (filterHasOpenIssues) params.set("hasOpenIssues", "true");
+    return `/api/contacts?${params.toString()}`;
+  };
 
   const { data: contacts, isLoading } = useQuery<ContactWithDetails[]>({
-    queryKey: ["/api/contacts", { q: searchQuery }],
+    queryKey: ["/api/contacts", searchQuery, filterType, filterHasThreads, filterHasOpenIssues],
     queryFn: async () => {
-      const url = searchQuery.trim()
-        ? `/api/contacts?q=${encodeURIComponent(searchQuery.trim())}`
-        : "/api/contacts";
-      const res = await fetch(url, { credentials: "include" });
+      const res = await fetch(buildUrl(), { credentials: "include" });
       if (!res.ok) throw new Error(res.statusText);
       return res.json();
     },
   });
 
+  const { data: duplicates } = useQuery<any[]>({
+    queryKey: ["/api/contacts/duplicates"],
+    queryFn: async () => {
+      const res = await fetch("/api/contacts/duplicates", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
   return (
     <div className="flex h-full overflow-hidden">
-      {/* ─── Left panel: list ─────────────────────────────────────────────── */}
+      {/* ─── Left panel ─── */}
       <div className="w-80 shrink-0 flex flex-col border-r border-border bg-card">
 
         {/* Toolbar */}
         <div className="shrink-0 h-14 flex items-center gap-2 px-4 border-b border-border">
           <Users className="h-4 w-4 text-muted-foreground shrink-0" />
           <h1 className="text-sm font-semibold flex-1">Contacts</h1>
-          {contacts && (
-            <Badge variant="secondary" className="text-xs" data-testid="contacts-count">
-              {contacts.length}
-            </Badge>
+          {contacts && <Badge variant="secondary" className="text-xs" data-testid="contacts-count">{contacts.length}</Badge>}
+          {duplicates && duplicates.length > 0 && (
+            <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1 text-amber-600 border-amber-300 hover:bg-amber-50" onClick={() => setDuplicatesOpen(true)} data-testid="button-show-duplicates">
+              <GitMerge className="h-3 w-3" />{duplicates.length}
+            </Button>
           )}
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 px-2.5 text-xs"
-            onClick={() => setCreateOpen(true)}
-            data-testid="button-new-contact"
-          >
-            <Plus className="h-3 w-3 mr-0.5" />
-            New
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setImportOpen(true)} data-testid="button-import-contacts">
+            <Upload className="h-3 w-3" />Import
+          </Button>
+          <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setCreateOpen(true)} data-testid="button-new-contact">
+            <Plus className="h-3 w-3 mr-0.5" />New
           </Button>
         </div>
 
-        {/* Search */}
-        <div className="shrink-0 px-3 py-2 border-b border-border">
-          <div className="relative">
+        {/* Search + filter toggle */}
+        <div className="shrink-0 px-3 py-2 border-b border-border flex items-center gap-2">
+          <div className="relative flex-1">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              placeholder="Search name, email, phone…"
-              className="pl-8 h-8 text-sm"
-              data-testid="input-contact-search"
-            />
+            <Input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search name, email, phone…" className="pl-8 h-8 text-sm" data-testid="input-contact-search" />
             {searchQuery && (
-              <button
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                onClick={() => setSearchQuery("")}
-                data-testid="button-clear-search"
-              >
+              <button className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground" onClick={() => setSearchQuery("")} data-testid="button-clear-search">
                 <X className="h-3.5 w-3.5" />
               </button>
             )}
           </div>
+          <Button size="sm" variant={filtersOpen || activeFilterCount > 0 ? "default" : "outline"} className="h-8 px-2 shrink-0 gap-1" onClick={() => setFiltersOpen(v => !v)} data-testid="button-toggle-contact-filters">
+            <Filter className="h-3.5 w-3.5" />
+            {activeFilterCount > 0 && <span className="text-xs">{activeFilterCount}</span>}
+          </Button>
         </div>
+
+        {/* Filter panel */}
+        {filtersOpen && (
+          <div className="shrink-0 px-3 py-2.5 border-b border-border bg-muted/20 space-y-3" data-testid="contact-filter-panel">
+            <div>
+              <label className="text-xs text-muted-foreground mb-1 block">Contact type</label>
+              <Select value={filterType} onValueChange={setFilterType}>
+                <SelectTrigger className="h-7 text-xs" data-testid="filter-contact-type"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All types</SelectItem>
+                  {CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-foreground cursor-pointer" htmlFor="filter-has-threads">Has linked threads</label>
+              <Switch id="filter-has-threads" checked={filterHasThreads} onCheckedChange={setFilterHasThreads} data-testid="filter-has-threads" />
+            </div>
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-foreground cursor-pointer" htmlFor="filter-has-issues">Has open issues</label>
+              <Switch id="filter-has-issues" checked={filterHasOpenIssues} onCheckedChange={setFilterHasOpenIssues} data-testid="filter-has-open-issues" />
+            </div>
+            {activeFilterCount > 0 && (
+              <button className="text-xs text-primary hover:underline" onClick={() => { setFilterType("all"); setFilterHasThreads(false); setFilterHasOpenIssues(false); }} data-testid="button-clear-contact-filters">
+                Clear filters
+              </button>
+            )}
+          </div>
+        )}
 
         {/* List */}
         <ScrollArea className="flex-1">
@@ -573,54 +845,31 @@ export function ContactsPage() {
               {[...Array(8)].map((_, i) => (
                 <div key={i} className="flex items-center gap-3 p-2">
                   <Skeleton className="h-9 w-9 rounded-full shrink-0" />
-                  <div className="flex-1 space-y-1.5">
-                    <Skeleton className="h-3.5 w-32" />
-                    <Skeleton className="h-3 w-44" />
-                  </div>
+                  <div className="flex-1 space-y-1.5"><Skeleton className="h-3.5 w-32" /><Skeleton className="h-3 w-44" /></div>
                 </div>
               ))}
             </div>
           ) : !contacts || contacts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 px-4 text-center" data-testid="contacts-empty">
               <Users className="h-8 w-8 text-muted-foreground/40 mb-3" />
-              <p className="text-sm text-muted-foreground">
-                {searchQuery ? "No contacts match your search." : "No contacts yet."}
-              </p>
-              {!searchQuery && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="mt-3 h-8 text-xs"
-                  onClick={() => setCreateOpen(true)}
-                  data-testid="button-create-first-contact"
-                >
-                  <Plus className="h-3 w-3 mr-1" />
-                  Add Contact
+              <p className="text-sm text-muted-foreground">{searchQuery || activeFilterCount > 0 ? "No contacts match your filters." : "No contacts yet."}</p>
+              {!searchQuery && activeFilterCount === 0 && (
+                <Button size="sm" variant="outline" className="mt-3 h-8 text-xs" onClick={() => setCreateOpen(true)} data-testid="button-create-first-contact">
+                  <Plus className="h-3 w-3 mr-1" />Add Contact
                 </Button>
               )}
             </div>
           ) : (
             <div className="py-1" data-testid="contacts-list">
               {contacts.map(c => (
-                <button
-                  key={c.id}
-                  className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b border-border/30 ${selectedId === c.id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`}
-                  onClick={() => setSelectedId(c.id)}
-                  data-testid={`contact-row-${c.id}`}
-                >
+                <button key={c.id} className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b border-border/30 ${selectedId === c.id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`} onClick={() => setSelectedId(c.id)} data-testid={`contact-row-${c.id}`}>
                   <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-sm font-semibold text-primary">
-                      {c.displayName?.[0]?.toUpperCase() ?? "?"}
-                    </span>
+                    <span className="text-sm font-semibold text-primary">{c.displayName?.[0]?.toUpperCase() ?? "?"}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-foreground truncate" data-testid={`contact-name-${c.id}`}>
-                        {c.displayName}
-                      </span>
-                      <Badge variant={contactTypeColor(c.contactType)} className="text-xs h-4 px-1.5 shrink-0">
-                        {c.contactType}
-                      </Badge>
+                      <span className="text-sm font-medium text-foreground truncate" data-testid={`contact-name-${c.id}`}>{c.displayName}</span>
+                      <Badge variant={contactTypeColor(c.contactType)} className="text-xs h-4 px-1.5 shrink-0">{c.contactType}</Badge>
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`contact-email-${c.id}`}>
                       {c.primaryEmail ?? c.emails[0]?.email ?? (c.primaryPhone ?? c.phones[0]?.phoneNumber ?? "No contact info")}
@@ -634,7 +883,7 @@ export function ContactsPage() {
         </ScrollArea>
       </div>
 
-      {/* ─── Right panel: detail ───────────────────────────────────────────── */}
+      {/* ─── Right panel: detail ─── */}
       <div className="flex-1 flex flex-col overflow-hidden bg-background" data-testid="contact-detail-panel">
         {selectedId ? (
           <ContactDetail contactId={selectedId} />
@@ -642,12 +891,14 @@ export function ContactsPage() {
           <div className="flex-1 flex flex-col items-center justify-center text-center px-8" data-testid="contact-detail-empty">
             <Users className="h-12 w-12 text-muted-foreground/20 mb-4" />
             <p className="text-sm text-muted-foreground">Select a contact to view details</p>
-            <p className="text-xs text-muted-foreground/60 mt-1">Emails, phones, and activity timeline will appear here</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">Emails, phones, issues, tasks, and activity timeline will appear here</p>
           </div>
         )}
       </div>
 
       <CreateContactDialog open={createOpen} onClose={() => setCreateOpen(false)} />
+      <ImportWizardDialog open={importOpen} onClose={() => setImportOpen(false)} />
+      <DuplicatesDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
     </div>
   );
 }

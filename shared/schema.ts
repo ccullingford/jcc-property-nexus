@@ -49,6 +49,8 @@ export type InsertMailbox = z.infer<typeof insertMailboxSchema>;
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
   displayName: text("display_name").notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
   contactType: text("contact_type").notNull().default("Other"),
   primaryEmail: text("primary_email"),
   primaryPhone: text("primary_phone"),
@@ -244,6 +246,7 @@ export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
   issueId: integer("issue_id").references(() => issues.id),
   threadId: integer("thread_id").references(() => emailThreads.id),
+  contactId: integer("contact_id").references(() => contacts.id),
   assignedUserId: integer("assigned_user_id").references(() => users.id),
   createdByUserId: integer("created_by_user_id").references(() => users.id),
   title: text("title").notNull(),
@@ -310,6 +313,40 @@ export const activityLog = pgTable("activity_log", {
 export const insertActivityLogSchema = createInsertSchema(activityLog).omit({ id: true, createdAt: true });
 export type ActivityLog = typeof activityLog.$inferSelect;
 export type InsertActivityLog = z.infer<typeof insertActivityLogSchema>;
+
+// ============================================================
+// CONTACT IMPORT JOBS
+// ============================================================
+export const contactImportJobs = pgTable("contact_import_jobs", {
+  id: serial("id").primaryKey(),
+  uploadedByUserId: integer("uploaded_by_user_id").references(() => users.id),
+  filename: text("filename").notNull(),
+  rowCount: integer("row_count").notNull().default(0),
+  importedCount: integer("imported_count").notNull().default(0),
+  updatedCount: integer("updated_count").notNull().default(0),
+  skippedCount: integer("skipped_count").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  status: text("status").notNull().default("done"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertContactImportJobSchema = createInsertSchema(contactImportJobs).omit({ id: true, createdAt: true });
+export type ContactImportJob = typeof contactImportJobs.$inferSelect;
+
+// ============================================================
+// CONTACT MERGE LOG
+// ============================================================
+export const contactMergeLog = pgTable("contact_merge_log", {
+  id: serial("id").primaryKey(),
+  sourceContactId: integer("source_contact_id").notNull(),
+  targetContactId: integer("target_contact_id").notNull().references(() => contacts.id),
+  mergedByUserId: integer("merged_by_user_id").references(() => users.id),
+  mergedAt: timestamp("merged_at").defaultNow().notNull(),
+});
+
+export const insertContactMergeLogSchema = createInsertSchema(contactMergeLog).omit({ id: true, mergedAt: true });
+export type ContactMergeLog = typeof contactMergeLog.$inferSelect;
 
 // ============================================================
 // API CONTRACT TYPES

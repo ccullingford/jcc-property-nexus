@@ -8,6 +8,7 @@ interface IssueFilters {
   priority?: string;
   openOnly?: boolean;
   closedOnly?: boolean;
+  contactId?: number;
 }
 
 export async function listIssues(filters: IssueFilters = {}): Promise<IssueWithDetails[]> {
@@ -24,6 +25,9 @@ export async function listIssues(filters: IssueFilters = {}): Promise<IssueWithD
   }
   if (filters.closedOnly) {
     conditions.push(inArray(issues.status, ['Resolved', 'Closed']));
+  }
+  if (filters.contactId) {
+    conditions.push(eq(issues.contactId, filters.contactId));
   }
 
   const rows = conditions.length > 0

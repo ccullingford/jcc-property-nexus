@@ -18,7 +18,10 @@ import {
   updateTask as updateTaskService,
 } from "./services/taskService";
 import { searchContacts, getContactWithDetails } from "./services/contactSearchService";
+import type { ContactFilters } from "./services/contactSearchService";
 import { createContact, updateContact as updateContactService, addContactPhone, addContactEmail, linkThreadContact, unlinkThreadContact, getThreadContacts } from "./services/contactService";
+import { previewImport, executeImport } from "./services/contactImportService";
+import { findDuplicates, mergeContacts } from "./services/contactMergeService";
 import { getContactTimeline } from "./services/contactTimelineService";
 import { createIssue as createIssueService, updateIssue as updateIssueService, getIssueWithDetails } from "./services/issueService";
 import { listIssues } from "./services/issueQueryService";
@@ -568,10 +571,59 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.get(api.contacts.list.path, async (req, res) => {
     try {
-      const q = typeof req.query.q === "string" ? req.query.q : undefined;
-      res.json(await searchContacts(q));
+      const filters: ContactFilters = {
+        q: typeof req.query.q === "string" ? req.query.q : undefined,
+        contactType: typeof req.query.contactType === "string" ? req.query.contactType : undefined,
+        hasThreads: req.query.hasThreads === "true" ? true : undefined,
+        hasOpenIssues: req.query.hasOpenIssues === "true" ? true : undefined,
+      };
+      res.json(await searchContacts(filters));
     } catch (err) {
       res.status(500).json({ message: "Internal error" });
+    }
+  });
+
+  // ─── Contact Import ───────────────────────────────────────────────────────
+  app.post("/api/contacts/import/preview", requireAuth, async (req, res) => {
+    try {
+      const { rows, mapping } = req.body;
+      if (!Array.isArray(rows) || !mapping) return res.status(400).json({ message: "rows and mapping required" });
+      const result = await previewImport(rows, mapping);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Preview failed" });
+    }
+  });
+
+  app.post("/api/contacts/import/execute", requireAuth, async (req, res) => {
+    try {
+      const { rows, mapping, mode, filename } = req.body;
+      if (!Array.isArray(rows) || !mapping) return res.status(400).json({ message: "rows and mapping required" });
+      const userId = req.session.userId!;
+      const result = await executeImport(rows, mapping, mode ?? "upsert", userId, filename ?? "import.csv");
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Import failed" });
+    }
+  });
+
+  // ─── Contact Duplicates & Merge ───────────────────────────────────────────
+  app.get("/api/contacts/duplicates", requireAuth, async (req, res) => {
+    try {
+      res.json(await findDuplicates());
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Failed to find duplicates" });
+    }
+  });
+
+  app.post("/api/contacts/merge", requireAuth, async (req, res) => {
+    try {
+      const { sourceId, targetId } = req.body;
+      if (!sourceId || !targetId) return res.status(400).json({ message: "sourceId and targetId required" });
+      const merged = await mergeContacts(Number(sourceId), Number(targetId), req.session.userId!);
+      res.json(merged);
+    } catch (err: any) {
+      res.status(400).json({ message: err.message || "Merge failed" });
     }
   });
 
@@ -687,12 +739,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── Issues ───────────────────────────────────────────────────────────────
   app.get(api.issues.list.path, async (req, res) => {
     try {
-      const { status, priority, openOnly, closedOnly } = req.query;
+      const { status, priority, openOnly, closedOnly, contactId } = req.query;
       const results = await listIssues({
         status: typeof status === 'string' ? status : undefined,
         priority: typeof priority === 'string' ? priority : undefined,
         openOnly: openOnly === 'true',
         closedOnly: closedOnly === 'true',
+        contactId: typeof contactId === 'string' ? Number(contactId) : undefined,
       });
       res.json(results);
     } catch (err: any) {
@@ -888,11 +941,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── Tasks ────────────────────────────────────────────────────────────────
   app.get(api.tasks.list.path, async (req, res) => {
     try {
-      const { assignedToMe, overdue, status } = req.query;
-      const options: { assignedUserId?: number; overdue?: boolean; status?: string } = {};
+      const { assignedToMe, overdue, status, contactId } = req.query;
+      const options: { assignedUserId?: number; overdue?: boolean; status?: string; contactId?: number } = {};
       if (assignedToMe === "true") options.assignedUserId = req.session.userId!;
       if (overdue === "true") options.overdue = true;
       if (typeof status === "string" && status) options.status = status;
+      if (typeof contactId === "string" && contactId) options.contactId = Number(contactId);
       res.json(await storage.getTasksFiltered(options));
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -1,7 +1,14 @@
 import { db } from "../db";
-import { contacts, contactEmails, contactPhones, threadContacts, emailThreads } from "@shared/schema";
-import { eq, ilike, or, inArray, sql } from "drizzle-orm";
+import { contacts, contactEmails, contactPhones, threadContacts, issues } from "@shared/schema";
+import { eq, ilike, or, inArray, and, ne, sql } from "drizzle-orm";
 import type { ContactWithDetails } from "@shared/routes";
+
+export interface ContactFilters {
+  q?: string;
+  contactType?: string;
+  hasThreads?: boolean;
+  hasOpenIssues?: boolean;
+}
 
 async function enrichContacts(rows: typeof contacts.$inferSelect[]): Promise<ContactWithDetails[]> {
   if (!rows.length) return [];
@@ -25,41 +32,78 @@ async function enrichContacts(rows: typeof contacts.$inferSelect[]): Promise<Con
   }));
 }
 
-export async function searchContacts(query?: string): Promise<ContactWithDetails[]> {
-  if (!query || query.trim().length === 0) {
-    const rows = await db.select().from(contacts).orderBy(contacts.displayName);
-    return enrichContacts(rows);
-  }
-  const q = `%${query.trim()}%`;
-  const byName = await db.select().from(contacts).where(ilike(contacts.displayName, q));
-  const byEmail = await db
-    .select({ contact: contacts })
-    .from(contactEmails)
-    .innerJoin(contacts, eq(contactEmails.contactId, contacts.id))
-    .where(ilike(contactEmails.email, q));
-  const byPrimaryEmail = await db.select().from(contacts).where(ilike(contacts.primaryEmail, q));
-  const byPhone = await db
-    .select({ contact: contacts })
-    .from(contactPhones)
-    .innerJoin(contacts, eq(contactPhones.contactId, contacts.id))
-    .where(ilike(contactPhones.phoneNumber, q));
-  const byPrimaryPhone = await db.select().from(contacts).where(ilike(contacts.primaryPhone, q));
-  const seen = new Set<number>();
-  const merged: typeof contacts.$inferSelect[] = [];
-  for (const c of [
-    ...byName,
-    ...byEmail.map(r => r.contact),
-    ...byPrimaryEmail,
-    ...byPhone.map(r => r.contact),
-    ...byPrimaryPhone,
-  ]) {
-    if (!seen.has(c.id)) {
-      seen.add(c.id);
-      merged.push(c);
+export async function searchContacts(queryOrFilters?: string | ContactFilters): Promise<ContactWithDetails[]> {
+  const filters: ContactFilters = typeof queryOrFilters === "string"
+    ? { q: queryOrFilters }
+    : (queryOrFilters ?? {});
+
+  const { q, contactType, hasThreads, hasOpenIssues } = filters;
+
+  let rows: typeof contacts.$inferSelect[];
+
+  if (!q || q.trim().length === 0) {
+    rows = await db.select().from(contacts).orderBy(contacts.displayName);
+  } else {
+    const pattern = `%${q.trim()}%`;
+    const byName = await db.select().from(contacts).where(ilike(contacts.displayName, pattern));
+    const byEmail = await db
+      .select({ contact: contacts })
+      .from(contactEmails)
+      .innerJoin(contacts, eq(contactEmails.contactId, contacts.id))
+      .where(ilike(contactEmails.email, pattern));
+    const byPrimaryEmail = await db.select().from(contacts).where(ilike(contacts.primaryEmail, pattern));
+    const byPhone = await db
+      .select({ contact: contacts })
+      .from(contactPhones)
+      .innerJoin(contacts, eq(contactPhones.contactId, contacts.id))
+      .where(ilike(contactPhones.phoneNumber, pattern));
+    const byPrimaryPhone = await db.select().from(contacts).where(ilike(contacts.primaryPhone, pattern));
+
+    const seen = new Set<number>();
+    rows = [];
+    for (const c of [
+      ...byName,
+      ...byEmail.map(r => r.contact),
+      ...byPrimaryEmail,
+      ...byPhone.map(r => r.contact),
+      ...byPrimaryPhone,
+    ]) {
+      if (!seen.has(c.id)) {
+        seen.add(c.id);
+        rows.push(c);
+      }
     }
+    rows.sort((a, b) => a.displayName.localeCompare(b.displayName));
   }
-  merged.sort((a, b) => a.displayName.localeCompare(b.displayName));
-  return enrichContacts(merged);
+
+  // Apply contactType filter
+  if (contactType && contactType !== "all") {
+    rows = rows.filter(c => c.contactType === contactType);
+  }
+
+  // Apply hasThreads filter
+  if (hasThreads) {
+    const linkedContactIds = await db
+      .selectDistinct({ contactId: threadContacts.contactId })
+      .from(threadContacts);
+    const linkedSet = new Set(linkedContactIds.map(r => r.contactId));
+    rows = rows.filter(c => linkedSet.has(c.id));
+  }
+
+  // Apply hasOpenIssues filter
+  if (hasOpenIssues) {
+    const issueRows = await db
+      .selectDistinct({ contactId: issues.contactId })
+      .from(issues)
+      .where(and(
+        ne(issues.status, "Resolved"),
+        ne(issues.status, "Closed")
+      ));
+    const issueSet = new Set(issueRows.map(r => r.contactId).filter(Boolean) as number[]);
+    rows = rows.filter(c => issueSet.has(c.id));
+  }
+
+  return enrichContacts(rows);
 }
 
 export async function getContactWithDetails(id: number): Promise<ContactWithDetails | null> {

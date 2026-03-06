@@ -27,13 +27,15 @@ server/
     threadWorkflowService.ts  # Thread workflow: claim, assign, unassign, status change, notes, activity
     taskService.ts            # Task creation, update, assignment, status changes with activity logging
     contactIdentityService.ts # Email normalization, phone normalization, findContactByEmail/Phone
-    contactSearchService.ts   # searchContacts(query); getContactWithDetails(id)
+    contactSearchService.ts   # searchContacts(query, filters: contactType?, hasThreads?, hasOpenIssues?); getContactWithDetails(id)
     contactTimelineService.ts # getContactTimeline(contactId) aggregating threads, notes, tasks
     contactService.ts         # createContact, updateContact, addContactPhone/Email, linkThreadContact
+    contactImportService.ts   # previewImport(rows, mapping) + executeImport(rows, mapping, mode, userId) — CSV bulk import with field mapping, validation, upsert
+    contactMergeService.ts    # findDuplicates() by normalized email + cross-contact_emails check; mergeContacts(sourceId, targetId, userId) — re-links threads/emails/phones/issues/tasks/calls, logs merge
     issueService.ts           # createIssue (sets createdByUserId, logs activity), updateIssue, getIssueWithDetails
     issueLinkService.ts       # linkIssueThread, unlinkIssueThread, linkIssueTask, unlinkIssueTask; getIssueThreads, getIssueTasks
     issueTimelineService.ts   # getIssueTimeline(issueId) aggregating threads, tasks, notes, activity log
-    issueQueryService.ts      # listIssues(filters: status?, priority?, openOnly?) → IssueWithDetails[]
+    issueQueryService.ts      # listIssues(filters: status?, priority?, openOnly?, contactId?) → IssueWithDetails[]
 client/src/
   App.tsx         # Router, ProtectedRoute, LoginPage wrapper
   components/
@@ -44,7 +46,7 @@ client/src/
     admin.tsx     # Mailbox management
     inbox.tsx     # Three-pane inbox: thread list (search + filter panel) | message view (reply/compose, unknown contact banner) | thread sidebar; auto-refreshes every 60s
     tasks.tsx     # Task dashboard with My/Team/Overdue tabs + Create/Edit Task dialogs
-    contacts.tsx  # Two-panel contacts: searchable list | detail with timeline
+    contacts.tsx  # Two-panel contacts: filter bar (type, has threads, has issues) + Import (CSV wizard) + Duplicates review | detail with emails/phones/linked issues/tasks/timeline
     issues.tsx    # Two-panel issues: list with filters | detail with tabs (Overview/Threads/Tasks/Notes/Timeline)
     placeholders.tsx   # Properties, Calls placeholders
     call-pop.tsx  # RingEX call pop screen (/call-pop?phone=+1...)
@@ -59,7 +61,9 @@ client/src/
 - **email_threads** — id, mailbox_id, subject, microsoft_thread_id, assigned_user_id, contact_id, property_id, status, last_message_at, updated_at, created_at
 - **messages** — id, thread_id, microsoft_message_id, sender_email, sender_name, recipients[], subject, body, body_html, body_preview, received_at, has_attachments, is_read, direction (inbound|outbound, default inbound), updated_at
 - **attachments** — id, message_id, microsoft_attachment_id, name, content_type, size_bytes
-- **contacts** — id, display_name, contact_type, primary_email, primary_phone, notes, updated_at, created_at; types = Owner|Tenant|Vendor|Board|Realtor|Attorney|Other
+- **contacts** — id, display_name, first_name (nullable), last_name (nullable), contact_type, primary_email, primary_phone, notes, updated_at, created_at; types = Owner|Tenant|Vendor|Board|Realtor|Attorney|Other
+- **contact_import_jobs** — id, uploaded_by_user_id, filename, row_count, imported_count, skipped_count, error_count, status (pending|processing|done|failed), created_at, completed_at
+- **contact_merge_log** — id, source_contact_id, target_contact_id, merged_by_user_id, merged_at
 - **contact_phones** — id, contact_id, phone_number (normalized E.164), label, is_primary, created_at
 - **contact_emails** — id, contact_id, email (normalized lowercase), is_primary, created_at
 - **thread_contacts** — id, thread_id, contact_id, relationship_type (nullable), created_at
@@ -67,7 +71,7 @@ client/src/
 - **units** — id, property_id, unit_number, owner_contact_id, tenant_contact_id
 - **issues** — id, title, description, contact_id, property_id, unit_id, assigned_user_id, created_by_user_id, status (Open|In Progress|Waiting|Resolved|Closed), priority (Low|Normal|High|Urgent), closed_at, updated_at, created_at
 - **issue_threads** — id, issue_id, thread_id, created_at (links issues ↔ email_threads)
-- **tasks** — id, issue_id, thread_id, assigned_user_id, created_by_user_id, title, description, status (Open|In Progress|Completed|Cancelled), priority (Low|Normal|High|Urgent), due_date, updated_at, created_at
+- **tasks** — id, issue_id, thread_id, contact_id (nullable FK→contacts), assigned_user_id, created_by_user_id, title, description, status (Open|In Progress|Completed|Cancelled), priority (Low|Normal|High|Urgent), due_date, updated_at, created_at
 - **notes** — id, issue_id, thread_id, user_id, body, created_at
 - **calls** — id, phone_number, contact_id, user_id, started_at, ended_at, direction, notes, issue_id
 - **activity_log** — id, entity_type, entity_id, action, user_id, metadata, created_at
@@ -100,12 +104,17 @@ Roles: admin > manager > staff. `requireRole` middleware enforces per-route.
 - `GET/POST /api/mailboxes` — mailbox management (admin only)
 - `POST /api/mailboxes/:id/sync` — trigger Graph mailbox sync
 - `GET /api/graph/status` — Graph connector status
-- `GET/POST /api/contacts` — contacts CRUD
+- `GET/POST /api/contacts` — contacts list (query: ?q=, ?contactType=, ?hasThreads=true, ?hasOpenIssues=true) / create
 - `GET /api/contacts/:id` — contact with details (phones, emails, threadCount)
+- `PATCH /api/contacts/:id` — update contact (displayName, contactType, firstName, lastName, notes, primaryEmail, primaryPhone)
 - `GET /api/contacts/:id/timeline` — contact timeline
+- `POST /api/contacts/import/preview` — preview CSV import rows with field mapping; returns { valid[], invalid[], existingMatches[], duplicatesInFile[] }
+- `POST /api/contacts/import/execute` — execute CSV import; returns { imported, updated, skipped, errors[] }
+- `GET /api/contacts/duplicates` — find duplicate contacts by normalized email; returns pairs with signal
+- `POST /api/contacts/merge` — merge source into target (body: { sourceId, targetId }); re-links all data, deletes source
 - `GET/POST /api/properties` — properties CRUD
 - `GET /api/properties/:id/units` — units per property
-- `GET /api/issues` — list issues (query: ?status=, ?priority=, ?openOnly=true) → IssueWithDetails[]
+- `GET /api/issues` — list issues (query: ?status=, ?priority=, ?openOnly=true, ?closedOnly=true, ?contactId=N) → IssueWithDetails[]
 - `POST /api/issues` — create issue (sets createdByUserId from session)
 - `GET /api/issues/:id` — get issue with details (IssueWithDetails)
 - `PATCH /api/issues/:id` — update issue (status, priority, title, description, assignee, contact)
@@ -117,7 +126,7 @@ Roles: admin > manager > staff. `requireRole` middleware enforces per-route.
 - `GET /api/issues/:id/threads` — threads linked to this issue
 - `GET /api/issues/:id/tasks` — tasks linked to this issue
 - `GET /api/issues/:id/notes` — notes for this issue
-- `GET /api/tasks` — list tasks (query: ?assignedToMe=true, ?overdue=true, ?status=Open)
+- `GET /api/tasks` — list tasks (query: ?assignedToMe=true, ?overdue=true, ?status=Open, ?contactId=N)
 - `POST /api/tasks` — create task
 - `GET /api/tasks/:id` — task with enriched meta (assignee name, thread subject, issue title)
 - `PATCH /api/tasks/:id` — update task
