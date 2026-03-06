@@ -1,0 +1,440 @@
+# Build Chunk 8 — Contact Management Improvements
+
+Chunks 1–7 of the Property Management Operations Platform are already implemented.  
+Do NOT rebuild earlier chunks unless required to support the features below.
+
+Existing architecture:
+
+Frontend: React  
+Backend: Node.js  
+Database: PostgreSQL  
+Email: Microsoft Graph  
+Authentication: Microsoft Entra ID
+
+This chunk focuses on **making the contacts layer practical and scalable for real-world use**.
+
+---
+
+# Goals of Chunk 8
+
+Improve the contacts system so it can support:
+
+- bulk contact import
+- automatic contact linking from synced mail
+- prompt to create a contact when none exists
+- duplicate detection and cleanup
+- stronger search and filtering
+- better manual linking and relinking
+- support for future association/unit linking
+
+This chunk does NOT include:
+
+- association/unit data model implementation (Chunk 9)
+- RingEX integration (Chunk 10)
+- AI features (Chunk 11)
+
+---
+
+# Part 1 — Contact Import
+
+Add the ability to import contacts in bulk.
+
+## Requirements
+
+Support CSV import with a guided import flow.
+
+### Import flow
+1. Upload CSV file
+2. Preview rows
+3. Map CSV columns to system fields
+4. Validate data
+5. Show duplicate warnings
+6. Import records
+
+### Supported fields
+At minimum support:
+
+display_name  
+first_name  
+last_name  
+primary_email  
+secondary_email  
+primary_phone  
+secondary_phone  
+contact_type  
+notes
+
+### Import behavior
+Allow these modes:
+
+- create new only
+- update existing by email match
+- update existing by phone match
+- create or update
+
+### Validation
+Validate:
+
+- email format
+- phone normalization where possible
+- required display name or usable fallback
+- duplicate rows in uploaded file
+
+---
+
+# Part 2 — Contact Matching Improvements
+
+Improve automatic matching between synced messages and existing contacts.
+
+## Matching priority
+
+When syncing or rendering threads, match contacts in this order:
+
+1. exact normalized email match
+2. exact normalized phone match if available later
+3. manual thread-contact link
+4. no match
+
+### Email normalization
+Store and compare emails using:
+- lowercase
+- trimmed values
+
+### Phone normalization
+Store and compare phone numbers using:
+- E.164 where possible
+
+Do not perform fuzzy matching that may create bad associations.
+
+---
+
+# Part 3 — Unknown Contact Prompt
+
+When a thread has no linked contact and no automatic match is found:
+
+Show a clear prompt in the thread view:
+
+Unknown Contact
+
+Actions:
+- Create Contact
+- Search Existing Contact
+- Dismiss / Ignore for now
+
+### Create Contact flow
+Prefill:
+- display name from sender
+- primary email from sender email
+
+### Search Existing flow
+Allow user to:
+- search contacts
+- select one
+- link selected contact to the thread
+
+This must persist to the database.
+
+---
+
+# Part 4 — Duplicate Detection and Cleanup
+
+Add duplicate handling tools.
+
+## Duplicate signals
+
+Flag likely duplicates when:
+- same normalized email
+- same normalized phone
+- same display name plus matching domain or phone pattern
+
+Do not auto-merge duplicates silently.
+
+## Duplicate tools
+Provide a review screen or action flow to:
+- compare duplicate candidates
+- merge duplicate contacts manually
+- keep both if needed
+
+### Merge behavior
+When merging:
+- preserve linked threads
+- preserve linked tasks
+- preserve notes/history
+- preserve all emails and phone numbers when possible
+- choose one primary record as survivor
+
+---
+
+# Part 5 — Contact Search & Filtering
+
+Improve the Contacts page and backend search.
+
+## Search fields
+Support search by:
+- display name
+- email address
+- phone number
+- contact type
+
+## Filters
+Support:
+- contact type
+- has linked threads
+- has open issues
+- recently created
+- recently active
+
+Use backend query endpoints rather than frontend-only filtering.
+
+---
+
+# Part 6 — Contact Detail Improvements
+
+Improve the contact detail page so it is operationally useful.
+
+## Display
+Show:
+- display name
+- contact type
+- all emails
+- all phone numbers
+- notes
+- linked threads
+- linked tasks
+- linked issues
+- recent activity timeline
+
+## Timeline
+Timeline should include real data from the existing system:
+- linked email threads
+- task creation or updates
+- issue creation or updates
+- thread notes where relevant
+- sent and received mail activity if available
+
+Timeline should be reverse chronological.
+
+---
+
+# Part 7 — Contact Linking Controls
+
+Improve manual contact linking.
+
+## In thread view
+Allow:
+- view current linked contact
+- unlink contact
+- search and relink different contact
+- create and link new contact
+
+## In contact view
+Show:
+- linked threads
+- recent thread activity
+- option to manually link existing thread if useful
+
+Use explicit relationship records in the database.
+
+---
+
+# Part 8 — Database Enhancements
+
+Review and extend the contacts schema as needed.
+
+## Existing / required tables
+
+### contacts
+Should support at least:
+- id
+- display_name
+- first_name nullable
+- last_name nullable
+- contact_type
+- notes nullable
+- created_at
+- updated_at
+
+### contact_emails
+Should support:
+- id
+- contact_id
+- email
+- is_primary
+- created_at
+
+### contact_phones
+Should support:
+- id
+- contact_id
+- phone_number
+- label nullable
+- is_primary
+- created_at
+
+### thread_contacts
+Should support:
+- id
+- thread_id
+- contact_id
+- relationship_type nullable
+- created_at
+
+## Add if needed
+
+### contact_import_jobs
+Track imports:
+- id
+- uploaded_by_user_id
+- filename
+- status
+- created_at
+- completed_at nullable
+
+### contact_merge_log
+Track merges:
+- id
+- source_contact_id
+- target_contact_id
+- merged_by_user_id
+- created_at
+
+Add indexes for:
+- normalized email
+- normalized phone
+- display name search
+
+---
+
+# Part 9 — Backend Services
+
+Add or improve services such as:
+
+contactImportService  
+contactMergeService  
+contactMatchService  
+contactSearchService  
+contactLinkService
+
+## Responsibilities
+
+### contactImportService
+- parse CSV
+- validate records
+- preview mapping
+- create/update contacts
+
+### contactMergeService
+- merge duplicates safely
+- preserve linked records
+
+### contactMatchService
+- perform exact normalized match lookups
+- support sync-time matching
+
+### contactSearchService
+- handle filters and search queries
+
+### contactLinkService
+- manage thread-contact linking and relinking
+
+---
+
+# Part 10 — API Endpoints
+
+Create or extend endpoints such as:
+
+GET /api/contacts  
+POST /api/contacts  
+GET /api/contacts/:id  
+PATCH /api/contacts/:id
+
+POST /api/contacts/import/preview  
+POST /api/contacts/import/execute
+
+GET /api/contacts/duplicates  
+POST /api/contacts/merge
+
+POST /api/threads/:id/link-contact  
+POST /api/threads/:id/unlink-contact
+
+GET /api/contacts/:id/timeline
+
+Support pagination where helpful.
+
+---
+
+# Part 11 — Frontend Requirements
+
+## Contacts page
+Add:
+- search bar
+- filters
+- import button
+- duplicate review access
+
+## Import UI
+Add:
+- CSV upload
+- column mapping
+- validation preview
+- import confirmation
+
+## Contact detail page
+Improve:
+- summary header
+- email/phone sections
+- activity timeline
+- linked threads/issues/tasks
+
+## Thread view
+Add:
+- unknown contact prompt
+- create contact action
+- search existing contact action
+- relink/unlink controls
+
+Keep the UI clean and operational rather than CRM-sales oriented.
+
+---
+
+# Part 12 — Forward Compatibility
+
+Design this chunk so contacts can later connect cleanly to:
+
+- associations
+- units
+- RingEX calls
+- property-level history
+- AI-generated suggestions
+
+Do not implement those features yet, but preserve space in the architecture for them.
+
+---
+
+# Definition of Done
+
+Chunk 8 is complete when:
+
+- users can import contacts from CSV
+- imported contacts are validated and stored correctly
+- automatic contact linking works for exact email matches
+- unknown senders trigger a create/search contact prompt
+- users can manually link, unlink, and relink contacts
+- duplicate contacts can be reviewed and merged safely
+- contact search and filtering are strong enough for daily use
+- contact detail pages show real timeline/history data
+- all changes persist in PostgreSQL
+
+---
+
+# Deliverables
+
+- Postgres migrations for any contact import / merge support tables
+- backend services for import, merge, matching, search, and linking
+- import UI
+- duplicate review / merge UI
+- improved contacts UI
+- improved thread/contact linking UX
+- explanation of matching and duplicate-handling decisions
+
+Again: this chunk is only for Contact Management Improvements. Build it as an operational contact system for a shared inbox platform, not as a generic sales CRM.

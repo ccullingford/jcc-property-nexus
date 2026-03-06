@@ -59,13 +59,13 @@ export function Login() {
             <div className="mb-6">
               <img src={jccLogo} alt="JCC Property Group" className="w-full object-contain" />
             </div>
-            <div className="flex items-center gap-2 mb-4">
-              <span className="text-lg font-bold text-foreground tracking-widest uppercase">NEXUS</span>
+            <div className="flex items-center justify-center mb-4">
+              <span className="text-6xl font-bold tracking-widest uppercase" style={{ color: "#414257" }}>NEXUS</span>
             </div>
-            <h2 className="text-3xl font-display font-bold leading-9 tracking-tight text-foreground">
+            <h2 className="text-3xl font-display font-bold leading-9 tracking-tight" style={{ color: "#414257" }}>
               Welcome back
             </h2>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-2 text-sm" style={{ color: "#414257" }}>
               Sign in with your organization Microsoft account to continue.
             </p>
           </div>
@@ -110,7 +110,7 @@ export function Login() {
             </Button>
           )}
 
-          <p className="mt-6 text-xs text-center text-muted-foreground">
+          <p className="mt-6 text-xs text-center" style={{ color: "#414257" }}>
             Access is restricted to authorized users only.
             <br />
             Contact your administrator if you need access.
