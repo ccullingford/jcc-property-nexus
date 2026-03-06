@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
@@ -6,25 +6,87 @@ import { z } from "zod";
 import expressSession from "express-session";
 import { syncMailbox } from "./services/syncService";
 import { isGraphConfigured } from "./services/graphService";
+import {
+  buildAuthorizationUrl,
+  exchangeCodeForToken,
+  getMicrosoftUserProfile,
+  getCanonicalEmail,
+  getDisplayName,
+  generateCodeVerifier,
+  generateCodeChallenge,
+  generateState,
+  getOAuthConfig,
+  isOAuthConfigured,
+} from "./services/microsoftAuthService";
 
+// ─── Session types ────────────────────────────────────────────────────────────
 declare module "express-session" {
   interface SessionData {
     userId: number;
+    userRole: string;
+    oauthState: string;
+    oauthVerifier: string;
+    oauthRedirectUri: string;
   }
 }
 
-function requireAuth(req: any, res: any, next: any) {
-  if (!req.session?.userId) return res.status(401).json({ message: "Not authenticated" });
+// ─── Auth middleware ──────────────────────────────────────────────────────────
+function requireAuth(req: Request, res: Response, next: NextFunction) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ message: "Not authenticated" });
+  }
   next();
 }
+
+function requireRole(...roles: string[]) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.session?.userId) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    const role = req.session.userRole ?? "staff";
+    if (!roles.includes(role)) {
+      return res.status(403).json({ message: "Insufficient permissions" });
+    }
+    next();
+  };
+}
+
+// ─── Redirect-URI builder ─────────────────────────────────────────────────────
+function buildRedirectUri(req: Request): string {
+  const proto = req.get("x-forwarded-proto") || req.protocol;
+  const host = req.get("x-forwarded-host") || req.get("host");
+  return `${proto}://${host}/api/auth/microsoft/callback`;
+}
+
+// ─── Auth-exempt API paths ────────────────────────────────────────────────────
+// These are matched against req.path relative to /api
+const AUTH_OPEN = [
+  "/auth/me",
+  "/auth/microsoft",
+  "/auth/microsoft/callback",
+  "/auth/logout",
+  "/auth/status",
+];
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   app.use(expressSession({
     secret: process.env.SESSION_SECRET || "dev_secret_key",
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production" },
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      sameSite: "lax",
+      maxAge: 8 * 60 * 60 * 1000, // 8 hours
+    },
   }));
+
+  // ─── Global auth guard (applied after session middleware) ─────────────────
+  app.use("/api", (req: Request, res: Response, next: NextFunction) => {
+    const isOpen = AUTH_OPEN.some(p => req.path === p || req.path.startsWith(p + "/"));
+    if (isOpen) return next();
+    return requireAuth(req, res, next);
+  });
 
   // Seed initial data
   async function seedDatabase() {
@@ -40,32 +102,143 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
   seedDatabase();
 
-  // ─── Auth ───────────────────────────────────────────────────────────────────
-  app.post(api.auth.loginScaffold.path, async (req, res) => {
+  // ─── Auth: OAuth status ───────────────────────────────────────────────────
+  app.get(api.auth.status.path, (_req, res) => {
+    res.json({ oauthConfigured: isOAuthConfigured() });
+  });
+
+  // ─── Auth: Initiate Microsoft OAuth ──────────────────────────────────────
+  app.get(api.auth.microsoftLogin.path, (req, res) => {
+    const config = getOAuthConfig();
+    if (!config) {
+      return res.redirect("/login?error=not_configured");
+    }
+
+    const verifier = generateCodeVerifier();
+    const challenge = generateCodeChallenge(verifier);
+    const state = generateState();
+    const redirectUri = buildRedirectUri(req);
+
+    // Store PKCE params in session (pre-auth)
+    req.session.oauthState = state;
+    req.session.oauthVerifier = verifier;
+    req.session.oauthRedirectUri = redirectUri;
+
+    const authUrl = buildAuthorizationUrl({
+      clientId: config.clientId,
+      tenantId: config.tenantId,
+      redirectUri,
+      state,
+      codeChallenge: challenge,
+    });
+
+    return res.redirect(authUrl);
+  });
+
+  // ─── Auth: Microsoft OAuth callback ──────────────────────────────────────
+  app.get(api.auth.microsoftCallback.path, async (req, res) => {
+    const { code, state, error } = req.query as Record<string, string>;
+
+    if (error) {
+      console.error("OAuth error from Microsoft:", error, req.query.error_description);
+      return res.redirect(`/login?error=auth_failed`);
+    }
+
+    // Validate state (CSRF protection)
+    if (!state || state !== req.session.oauthState) {
+      return res.redirect("/login?error=invalid_state");
+    }
+
+    if (!code) {
+      return res.redirect("/login?error=auth_failed");
+    }
+
+    const config = getOAuthConfig();
+    if (!config) {
+      return res.redirect("/login?error=not_configured");
+    }
+
     try {
-      const input = api.auth.loginScaffold.input.parse(req.body);
-      let user = await storage.getUserByEmail(input.email);
-      if (!user) user = await storage.createUser({ email: input.email, name: input.name || input.email.split("@")[0], role: "staff" });
+      const redirectUri = req.session.oauthRedirectUri || buildRedirectUri(req);
+      const codeVerifier = req.session.oauthVerifier;
+
+      // Clear PKCE params from session
+      delete req.session.oauthState;
+      delete req.session.oauthVerifier;
+      delete req.session.oauthRedirectUri;
+
+      // Exchange code for tokens
+      const tokens = await exchangeCodeForToken({
+        clientId: config.clientId,
+        clientSecret: config.clientSecret,
+        tenantId: config.tenantId,
+        redirectUri,
+        code,
+        codeVerifier,
+      });
+
+      // Get user profile from Microsoft
+      const profile = await getMicrosoftUserProfile(tokens.access_token);
+      const email = getCanonicalEmail(profile);
+      const displayName = getDisplayName(profile);
+
+      // Domain check (if configured)
+      if (config.allowedDomain && !email.endsWith(`@${config.allowedDomain}`)) {
+        console.warn(`OAuth login denied — wrong domain: ${email}`);
+        return res.redirect("/login?error=domain_not_allowed");
+      }
+
+      // Look up user in the users table
+      let user = await storage.getUserByEmail(email);
+
+      if (!user) {
+        // Bootstrap: if users table is empty, make the first login an admin
+        const allUsers = await storage.getUsers();
+        if (allUsers.length === 0) {
+          user = await storage.createUser({ email, name: displayName, role: "admin" });
+          console.log(`[auth] Bootstrap: created first admin user ${email}`);
+        } else {
+          // If ALLOWED_EMAIL_DOMAIN is set and domain matches, auto-create as staff
+          if (config.allowedDomain && email.endsWith(`@${config.allowedDomain}`)) {
+            user = await storage.createUser({ email, name: displayName, role: "staff" });
+            console.log(`[auth] Auto-created staff user ${email} (domain match)`);
+          } else {
+            // User not registered — deny access
+            console.warn(`[auth] Login denied — not in users table: ${email}`);
+            return res.redirect("/login?error=access_denied");
+          }
+        }
+      }
+
+      // Establish session
       req.session.userId = user.id;
-      res.json(user);
-    } catch (err) {
-      if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
-      res.status(500).json({ message: "Internal error" });
+      req.session.userRole = user.role;
+
+      console.log(`[auth] User signed in: ${email} (${user.role})`);
+      return res.redirect("/inbox");
+    } catch (err: any) {
+      console.error("[auth] OAuth callback error:", err.message);
+      return res.redirect("/login?error=auth_failed");
     }
   });
 
+  // ─── Auth: Current user ───────────────────────────────────────────────────
   app.get(api.auth.me.path, async (req, res) => {
     if (!req.session.userId) return res.status(401).json({ message: "Not authenticated" });
     const user = await storage.getUser(req.session.userId);
-    if (!user) return res.status(401).json({ message: "User not found" });
+    if (!user) {
+      req.session.destroy(() => {});
+      return res.status(401).json({ message: "User not found" });
+    }
     res.json(user);
   });
 
+  // ─── Auth: Logout ─────────────────────────────────────────────────────────
   app.post(api.auth.logout.path, (req, res) => {
     req.session.destroy(() => res.json({ message: "Logged out" }));
   });
 
-  // ─── Users ──────────────────────────────────────────────────────────────────
+  // ─── Users (admin-only for management) ────────────────────────────────────
   app.get(api.users.list.path, async (_req, res) => res.json(await storage.getUsers()));
 
   app.get(api.users.get.path, async (req, res) => {
@@ -74,7 +247,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(user);
   });
 
-  app.post(api.users.create.path, async (req, res) => {
+  app.post(api.users.create.path, requireRole("admin", "manager"), async (req, res) => {
     try {
       const input = api.users.create.input.parse(req.body);
       res.status(201).json(await storage.createUser(input));
@@ -84,7 +257,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.put(api.users.update.path, async (req, res) => {
+  app.put(api.users.update.path, requireRole("admin"), async (req, res) => {
     try {
       const input = api.users.update.input.parse(req.body);
       res.json(await storage.updateUser(Number(req.params.id), input));
@@ -94,10 +267,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ─── Mailboxes ──────────────────────────────────────────────────────────────
+  // ─── Mailboxes (admin-only for management) ────────────────────────────────
   app.get(api.mailboxes.list.path, async (_req, res) => res.json(await storage.getMailboxes()));
 
-  app.post(api.mailboxes.create.path, async (req, res) => {
+  app.post(api.mailboxes.create.path, requireRole("admin"), async (req, res) => {
     try {
       const input = api.mailboxes.create.input.parse(req.body);
       res.status(201).json(await storage.createMailbox(input));
@@ -107,7 +280,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.put(api.mailboxes.update.path, async (req, res) => {
+  app.put(api.mailboxes.update.path, requireRole("admin"), async (req, res) => {
     try {
       const input = api.mailboxes.update.input.parse(req.body);
       res.json(await storage.updateMailbox(Number(req.params.id), input));
@@ -117,18 +290,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  app.delete(api.mailboxes.delete.path, async (req, res) => {
+  app.delete(api.mailboxes.delete.path, requireRole("admin"), async (req, res) => {
     await storage.deleteMailbox(Number(req.params.id));
     res.status(204).send();
   });
 
-  // ─── Mailbox Sync ────────────────────────────────────────────────────────────
-  app.post(api.mailboxes.sync.path, requireAuth, async (req, res) => {
+  // ─── Mailbox Sync ─────────────────────────────────────────────────────────
+  app.post(api.mailboxes.sync.path, async (req, res) => {
     try {
-      const mailboxId = Number(req.params.id);
-      const mailbox = await storage.getMailbox(mailboxId);
+      const mailbox = await storage.getMailbox(Number(req.params.id));
       if (!mailbox) return res.status(404).json({ message: "Mailbox not found" });
-
       const result = await syncMailbox(mailbox);
       res.json(result);
     } catch (err: any) {
@@ -136,19 +307,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ─── Email Threads ──────────────────────────────────────────────────────────
-  app.get(api.threads.list.path, requireAuth, async (req, res) => {
+  // ─── Email Threads ────────────────────────────────────────────────────────
+  app.get(api.threads.list.path, async (req, res) => {
     const mailboxId = req.query.mailboxId ? Number(req.query.mailboxId) : undefined;
     res.json(await storage.getThreads(mailboxId));
   });
 
-  app.get(api.threads.get.path, requireAuth, async (req, res) => {
+  app.get(api.threads.get.path, async (req, res) => {
     const thread = await storage.getThread(Number(req.params.id));
     if (!thread) return res.status(404).json({ message: "Thread not found" });
     res.json(thread);
   });
 
-  app.put(api.threads.update.path, requireAuth, async (req, res) => {
+  app.put(api.threads.update.path, async (req, res) => {
     try {
       const input = api.threads.update.input.parse(req.body);
       res.json(await storage.updateThread(Number(req.params.id), input));
@@ -158,16 +329,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ─── Thread Messages ─────────────────────────────────────────────────────────
-  app.get(api.threads.messages.path, requireAuth, async (req, res) => {
+  // ─── Thread Messages ──────────────────────────────────────────────────────
+  app.get(api.threads.messages.path, async (req, res) => {
     const threadId = Number(req.params.id);
     const thread = await storage.getThread(threadId);
     if (!thread) return res.status(404).json({ message: "Thread not found" });
-    const msgs = await storage.getMessagesByThread(threadId);
-    res.json(msgs);
+    res.json(await storage.getMessagesByThread(threadId));
   });
 
-  // ─── Contacts ───────────────────────────────────────────────────────────────
+  // ─── Contacts ─────────────────────────────────────────────────────────────
   app.get(api.contacts.list.path, async (_req, res) => res.json(await storage.getContacts()));
 
   app.get(api.contacts.get.path, async (req, res) => {
@@ -201,7 +371,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(204).send();
   });
 
-  // ─── Properties ─────────────────────────────────────────────────────────────
+  // ─── Properties ───────────────────────────────────────────────────────────
   app.get(api.properties.list.path, async (_req, res) => res.json(await storage.getProperties()));
 
   app.get(api.properties.get.path, async (req, res) => {
@@ -249,7 +419,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ─── Issues ─────────────────────────────────────────────────────────────────
+  // ─── Issues ───────────────────────────────────────────────────────────────
   app.get(api.issues.list.path, async (_req, res) => res.json(await storage.getIssues()));
 
   app.get(api.issues.get.path, async (req, res) => {
@@ -283,7 +453,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(204).send();
   });
 
-  // ─── Tasks ──────────────────────────────────────────────────────────────────
+  // ─── Tasks ────────────────────────────────────────────────────────────────
   app.get(api.tasks.list.path, async (req, res) => {
     const issueId = req.query.issueId ? Number(req.query.issueId) : undefined;
     res.json(await storage.getTasks(issueId));
@@ -320,8 +490,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(204).send();
   });
 
-  // ─── Calls ──────────────────────────────────────────────────────────────────
-  // Call pop must be before /api/calls/:id to avoid routing conflict
+  // ─── Calls ────────────────────────────────────────────────────────────────
   app.get(api.calls.callPop.path, async (req, res) => {
     const phone = req.query.phone as string;
     if (!phone) return res.status(400).json({ message: "phone query param required" });
@@ -351,7 +520,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ─── Graph Status ────────────────────────────────────────────────────────────
+  // ─── Graph Status ─────────────────────────────────────────────────────────
   app.get(api.graph.status.path, (_req, res) => {
     const configured = isGraphConfigured();
     const hasConnector = !!(
@@ -363,7 +532,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       process.env.MICROSOFT_CLIENT_ID &&
       process.env.MICROSOFT_CLIENT_SECRET
     );
-    const method = hasConnector ? "Replit Outlook connector" : hasAppOnly ? "app-only credentials" : null;
+    const method = hasConnector
+      ? "Replit Outlook connector"
+      : hasAppOnly
+      ? "app-only credentials"
+      : null;
     res.json({
       configured,
       method,

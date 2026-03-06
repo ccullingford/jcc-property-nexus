@@ -7,7 +7,7 @@ An internal operations platform for property management combining shared inbox, 
 - **Frontend**: React + TypeScript + Tailwind + shadcn/ui (Vite)
 - **Backend**: Node.js + Express (tsx server)
 - **Database**: PostgreSQL (Drizzle ORM)
-- **Session**: express-session with cookie-based auth scaffold
+- **Auth**: Microsoft Entra ID OAuth2 with PKCE (session-based)
 
 ## Project Structure
 ```
@@ -18,26 +18,30 @@ server/
   index.ts        # Express entry point
   db.ts           # Drizzle + pg Pool
   storage.ts      # DatabaseStorage class (all DB operations)
-  routes.ts       # Route handlers (thin — delegate to storage)
+  routes.ts       # Route handlers — includes OAuth, RBAC middleware
+  services/
+    graphService.ts         # Microsoft Graph (mailbox sync via Replit Outlook connector)
+    microsoftAuthService.ts # PKCE helpers, token exchange, Graph user profile
 client/src/
-  App.tsx         # Router, protected routes
+  App.tsx         # Router, ProtectedRoute, LoginPage wrapper
   components/
     layout.tsx    # 3-panel workspace layout (sidebar | main | context panel)
   pages/
-    login.tsx     # Auth scaffold login page
+    login.tsx     # Microsoft OAuth login page (no scaffold form)
     admin.tsx     # Mailbox management
     placeholders.tsx   # Inbox, Tasks, Issues, Contacts, Properties, Calls
     call-pop.tsx  # RingEX call pop screen (/call-pop?phone=+1...)
   hooks/
-    use-auth.ts   # useUser, useLogin, useLogout
+    use-auth.ts        # useUser (GET /api/auth/me), useLogout
     use-mailboxes.ts   # Mailbox CRUD hooks
 ```
 
 ## Database Schema (all tables in Postgres)
 - **users** — id, name, email, role (admin|manager|staff), created_at
 - **mailboxes** — id, name, type (shared|personal), microsoft_mailbox_id, is_default, created_at
-- **email_threads** — id, mailbox_id, subject, microsoft_thread_id, assigned_user_id, contact_id, property_id, status, last_message_at, created_at
-- **messages** — id, thread_id, microsoft_message_id, sender_email, recipients[], subject, body, received_at, has_attachments
+- **email_threads** — id, mailbox_id, subject, microsoft_thread_id, assigned_user_id, contact_id, property_id, status, last_message_at, updated_at, created_at
+- **messages** — id, thread_id, microsoft_message_id, sender_email, sender_name, recipients[], subject, body, body_html, body_preview, received_at, has_attachments, is_read, updated_at
+- **attachments** — id, message_id, microsoft_attachment_id, name, content_type, size_bytes
 - **contacts** — id, display_name, contact_type, primary_email, primary_phone, created_at
 - **contact_phones** — id, contact_id, phone_number (E164), label
 - **properties** — id, name, address, association_name, created_at
@@ -54,13 +58,28 @@ client/src/
 Sidebar navigation: Inbox, Tasks, Issues, Contacts, Properties, Calls, Admin
 
 ## Authentication
-Session-based scaffold. POST /api/auth/login-scaffold with email+name creates/finds user and sets session cookie. Full Microsoft OAuth is planned for a future chunk.
+Microsoft Entra ID OAuth2 with PKCE.
+- `GET /api/auth/microsoft` — starts OAuth flow (redirects to Microsoft login)
+- `GET /api/auth/microsoft/callback` — handles redirect, creates/validates user, sets session
+- `GET /api/auth/me` — returns current user or 401
+- `POST /api/auth/logout` — destroys session
+- `GET /api/auth/status` — returns `{ oauthConfigured: boolean }`
+
+### Bootstrap rules
+- If users table is empty, first sign-in auto-creates admin account
+- If `ALLOWED_EMAIL_DOMAIN` env var is set, matching-domain users are auto-created as staff
+- Otherwise, user must already exist in the users table
+
+### RBAC
+Roles: admin > manager > staff. `requireRole` middleware enforces per-route.
 
 ## Key API Endpoints
 - `GET /api/auth/me` — current user
-- `POST /api/auth/login-scaffold` — login
 - `POST /api/auth/logout` — logout
-- `GET/POST /api/mailboxes` — mailbox management
+- `GET /api/auth/status` — OAuth config status
+- `GET/POST /api/mailboxes` — mailbox management (admin only)
+- `POST /api/mailboxes/:id/sync` — trigger Graph mailbox sync
+- `GET /api/graph/status` — Graph connector status
 - `GET/POST /api/contacts` — contacts CRUD
 - `GET/POST /api/properties` — properties CRUD
 - `GET /api/properties/:id/units` — units per property
@@ -68,19 +87,24 @@ Session-based scaffold. POST /api/auth/login-scaffold with email+name creates/fi
 - `GET/POST /api/tasks` — tasks CRUD
 - `GET/POST /api/calls` — call log
 - `GET /api/calls/pop?phone=+1...` — RingEX call pop lookup
-
-## Build Chunks Completed
-- **Chunk 1**: Foundation — auth scaffold, app shell, users, mailboxes, full schema for all future chunks
-- **Chunk 2**: Inbox Read — Microsoft Graph sync service, full inbox UI (thread list + message view), attachments metadata, mailbox sync endpoint
+- `GET /api/threads` — email threads (filtered by mailbox)
+- `GET /api/threads/:id/messages` — messages in a thread
 
 ## Microsoft Graph Configuration
-For mailbox sync to work, set these environment secrets:
+Required environment secrets for OAuth and mailbox sync:
 - `MICROSOFT_TENANT_ID` — Azure AD tenant ID
 - `MICROSOFT_CLIENT_ID` — App registration client ID
 - `MICROSOFT_CLIENT_SECRET` — App registration client secret
 
-The Azure AD app needs **Mail.Read** application permission (admin consent required).
-Shared mailboxes are read via `/users/{sharedMailboxEmail}/messages`.
+The Azure AD app needs:
+- **Mail.Read** application permission (admin consent) for mailbox sync
+- **User.Read** delegated permission for sign-in
+- Redirect URI registered: `https://<your-replit-domain>/api/auth/microsoft/callback`
 
 Sync endpoint: `POST /api/mailboxes/:id/sync`
 Graph status: `GET /api/graph/status`
+
+## Build Chunks Completed
+- **Chunk 1**: Foundation — app shell, schema, users, mailboxes, full DB schema
+- **Chunk 2**: Inbox Read — Microsoft Graph sync service, full inbox UI (thread list + message view), attachments
+- **Chunk 3**: Microsoft OAuth — PKCE auth flow, RBAC middleware, login page, session management

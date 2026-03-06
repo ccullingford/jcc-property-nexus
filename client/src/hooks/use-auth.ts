@@ -1,35 +1,17 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@shared/routes";
+import type { User } from "@shared/schema";
 
 export function useUser() {
-  return useQuery({
+  return useQuery<User | null>({
     queryKey: [api.auth.me.path],
     queryFn: async () => {
       const res = await fetch(api.auth.me.path, { credentials: "include" });
       if (res.status === 401) return null;
       if (!res.ok) throw new Error("Failed to fetch user");
-      return api.auth.me.responses[200].parse(await res.json());
+      return res.json() as Promise<User>;
     },
     retry: false,
-  });
-}
-
-export function useLogin() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: { email: string; name?: string }) => {
-      const res = await fetch(api.auth.loginScaffold.path, {
-        method: api.auth.loginScaffold.method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-        credentials: "include",
-      });
-      if (!res.ok) throw new Error("Failed to login");
-      return api.auth.loginScaffold.responses[200].parse(await res.json());
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: [api.auth.me.path] });
-    },
   });
 }
 
@@ -45,6 +27,8 @@ export function useLogout() {
     },
     onSuccess: () => {
       queryClient.setQueryData([api.auth.me.path], null);
+      // Full redirect clears any stale state
+      window.location.href = "/login";
     },
   });
 }

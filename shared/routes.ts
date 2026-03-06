@@ -21,16 +21,25 @@ export const api = {
       path: '/api/auth/me' as const,
       responses: { 200: z.custom<typeof users.$inferSelect>(), 401: errorSchemas.unauthorized },
     },
-    loginScaffold: {
-      method: 'POST' as const,
-      path: '/api/auth/login-scaffold' as const,
-      input: z.object({ email: z.string(), name: z.string().optional() }),
-      responses: { 200: z.custom<typeof users.$inferSelect>() },
+    microsoftLogin: {
+      method: 'GET' as const,
+      path: '/api/auth/microsoft' as const,
+      responses: { 302: z.void() },
+    },
+    microsoftCallback: {
+      method: 'GET' as const,
+      path: '/api/auth/microsoft/callback' as const,
+      responses: { 302: z.void() },
     },
     logout: {
       method: 'POST' as const,
       path: '/api/auth/logout' as const,
       responses: { 200: z.object({ message: z.string() }) },
+    },
+    status: {
+      method: 'GET' as const,
+      path: '/api/auth/status' as const,
+      responses: { 200: z.object({ oauthConfigured: z.boolean() }) },
     },
   },
 
