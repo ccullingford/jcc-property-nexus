@@ -201,7 +201,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             user = await storage.createUser({ email, name: displayName, role: "staff" });
           } else {
             // User not registered — deny access
-            console.warn(`[auth] Login denied — not in users table: ${email}`);
             return res.redirect("/login?error=access_denied");
           }
         }
