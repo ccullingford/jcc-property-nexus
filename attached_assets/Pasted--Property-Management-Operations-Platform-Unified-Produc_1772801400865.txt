@@ -1,0 +1,561 @@
+
+# Property Management Operations Platform
+## Unified Product Specification for Replit Build
+
+This document combines the **architecture, entity model, UI layout, features, and build plan** for creating a property‑management operations platform.
+
+The system combines:
+
+- Shared Outlook inbox
+- Task management
+- CRM-lite contacts
+- Issue / case tracking
+- Property & unit context
+- RingEX call pop
+- Future AI readiness
+
+The goal is **an operations platform where communication creates work**, not just another email client.
+
+---
+
+# Technology Stack (Required)
+
+Replit should build the system using this exact stack.
+
+Frontend
+- React
+- TypeScript
+- Tailwind (preferred)
+
+Backend
+- Node.js
+- Express or structured API layer
+
+Database
+- PostgreSQL
+
+Other
+- Microsoft Graph API (Outlook integration)
+- RingEX URL call pop integration
+
+Architecture must remain **portable and not dependent on Replit-specific frameworks**.
+
+---
+
+# Core Domain Model
+
+The system revolves around relationships between communication and operational work.
+
+High‑level model:
+
+Property  
+└── Unit  
+  └── Contact  
+    ├── Threads  
+    │  └── Messages  
+    ├── Calls  
+    ├── Issues  
+    │  ├── Tasks  
+    │  ├── Notes  
+    │  └── Emails  
+    └── Activity Timeline
+
+Key rule:
+
+Everything must be linkable to:
+- Contact
+- Property / Unit
+- Thread
+- Issue
+- Task
+
+---
+
+# Core Entities
+
+## Users
+
+users
+- id
+- name
+- email
+- role
+- created_at
+
+Roles
+- admin
+- manager
+- staff
+
+---
+
+## Mailboxes
+
+mailboxes
+- id
+- name
+- type (shared | personal)
+- microsoft_mailbox_id
+- created_at
+
+---
+
+## Email Threads
+
+email_threads
+- id
+- mailbox_id
+- subject
+- microsoft_thread_id
+- assigned_user_id
+- status
+- created_at
+- last_message_at
+
+Statuses
+- Open
+- Waiting
+- Closed
+- Archived
+
+---
+
+## Messages
+
+messages
+- id
+- thread_id
+- microsoft_message_id
+- sender_email
+- recipients
+- subject
+- body
+- received_at
+- has_attachments
+
+---
+
+## Contacts
+
+contacts
+- id
+- display_name
+- contact_type
+- primary_email
+- primary_phone
+- created_at
+
+contact types
+- Owner
+- Tenant
+- Vendor
+- Board
+- Realtor
+- Attorney
+- Other
+
+---
+
+## Contact Phones
+
+contact_phones
+- id
+- contact_id
+- phone_number (E164)
+- label
+
+---
+
+## Properties
+
+properties
+- id
+- name
+- address
+- association_name
+
+---
+
+## Units
+
+units
+- id
+- property_id
+- unit_number
+- owner_contact_id
+- tenant_contact_id
+
+---
+
+## Issues / Cases
+
+issues
+- id
+- title
+- description
+- contact_id
+- property_id
+- unit_id
+- status
+- priority
+- created_at
+- closed_at
+
+Statuses
+- Open
+- In Progress
+- Waiting
+- Resolved
+- Closed
+
+---
+
+## Tasks
+
+tasks
+- id
+- issue_id
+- thread_id
+- assigned_user_id
+- title
+- description
+- status
+- priority
+- due_date
+- created_at
+
+---
+
+## Notes
+
+notes
+- id
+- issue_id
+- thread_id
+- user_id
+- body
+- created_at
+
+---
+
+## Calls
+
+calls
+- id
+- phone_number
+- contact_id
+- user_id
+- started_at
+- ended_at
+- direction
+- notes
+- issue_id
+
+---
+
+## Activity Log
+
+activity_log
+- id
+- entity_type
+- entity_id
+- action
+- user_id
+- metadata
+- created_at
+
+---
+
+# UI Layout
+
+Use a **3‑panel workspace layout**.
+
+Sidebar | Workspace | Context Panel
+
+Sidebar
+- Inbox
+- Tasks
+- Issues
+- Contacts
+- Properties
+- Calls
+- Admin
+
+Workspace
+Displays main working view.
+
+Context panel
+Shows related information for selected item.
+
+---
+
+# Inbox UI
+
+Thread list shows
+
+- Subject
+- Contact
+- Property / Unit
+- Status
+- Assignee
+- Last activity
+
+Thread view shows
+
+- email messages
+- internal notes
+- actions
+
+Actions
+
+- Reply
+- Assign
+- Create task
+- Create issue
+- Change status
+- Add note
+
+Context panel shows
+
+- Contact
+- Property
+- Tasks
+- Linked issue
+
+---
+
+# Contact Page
+
+Header
+- name
+- phones
+- emails
+- unit / property
+
+Main area
+Timeline
+
+Timeline includes
+
+- emails
+- calls
+- tasks
+- issues
+- notes
+
+---
+
+# Issue Page
+
+Issue header
+- title
+- status
+- priority
+- contact
+- property
+- assignee
+
+Tabs
+
+Overview  
+Tasks  
+Emails  
+Calls  
+Notes  
+Attachments
+
+---
+
+# Call Pop (RingEX)
+
+Incoming call triggers:
+
+/call-pop?phone=%E
+
+System flow
+
+1 receive phone number  
+2 normalize phone number  
+3 lookup contact_phones  
+4 if match show contact  
+5 if not show unknown caller
+
+Call pop screen shows
+
+- contact
+- recent activity
+- open issues
+- quick create issue
+
+---
+
+# Basic Feature Set
+
+Shared Inbox
+- connect Outlook mailbox
+- view threads
+- read messages
+- reply
+- assign threads
+- internal notes
+
+Tasks
+- create task
+- assign task
+- due dates
+- thread link
+
+Contacts
+- contact records
+- phone numbers
+- email addresses
+- timeline
+
+Issues
+- group work
+- link emails
+- link tasks
+
+Properties
+- property records
+- units
+- owner / tenant linking
+
+Calls
+- RingEX call pop
+- call log
+- contact lookup
+
+---
+
+# Advanced Features
+
+Waiting‑On Workflow
+- Waiting on vendor
+- Waiting on owner
+- Waiting on board
+
+Property Activity Feed
+Timeline of everything happening at a property.
+
+Automatic Issue Grouping
+Multiple emails/calls grouped under an issue.
+
+Relationship Mapping
+Contacts linked to units, properties, issues.
+
+Operational Dashboard
+Metrics
+
+- inbox response time
+- open issues
+- overdue tasks
+- vendor performance
+
+---
+
+# Build Plan
+
+Build in vertical chunks.
+
+Chunk 1 Foundation
+- authentication
+- app shell
+- users
+- mailboxes
+
+Chunk 2 Inbox Read
+- thread sync
+- message display
+
+Chunk 3 Inbox Workflow
+- assign threads
+- notes
+- statuses
+
+Chunk 4 Tasks
+- task system
+- thread linking
+
+Chunk 5 Contacts
+- CRM-lite
+- identity normalization
+
+Chunk 6 Issues
+- issue creation
+- issue linking
+
+Chunk 7 Properties
+- properties
+- units
+
+Chunk 8 RingEX
+- call pop
+- call logging
+
+Chunk 9 Workflow Refinement
+- waiting statuses
+- snooze
+- filters
+
+Chunk 10 Reporting
+- dashboards
+- metrics
+
+Chunk 11 Admin
+- configuration
+- categories
+- permissions
+
+Chunk 12 AI Layer
+- service hooks only
+
+---
+
+# AI Readiness
+
+Add service interfaces only.
+
+aiSummarizeThread()
+
+aiExtractTasks()
+
+aiSuggestReply()
+
+aiClassifyIssue()
+
+System must work fully without AI.
+
+---
+
+# Success Criteria for Version 1
+
+The system is successful when staff can:
+
+1 view shared mailbox threads  
+2 claim and assign them  
+3 reply to emails  
+4 create tasks  
+5 add notes  
+6 view contact history  
+7 receive RingEX call pop with context  
+
+At that point the system already replaces several tools.
+
+---
+
+# Strategic Goal
+
+The product should feel like
+
+Property Management Operations Platform
+
+not
+
+Email client with add‑ons.
+
+Communication should create work.
+
+Work should connect to issues.
+
+Issues should connect to contacts and properties.
