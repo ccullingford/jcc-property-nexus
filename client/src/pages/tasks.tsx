@@ -68,7 +68,7 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
   const [title, setTitle] = useState(prefillTitle);
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<string>("Normal");
-  const [assignedUserId, setAssignedUserId] = useState<string>("");
+  const [assignedUserId, setAssignedUserId] = useState<string>("none");
   const [dueDate, setDueDate] = useState<string>("");
 
   const createMutation = useMutation({
@@ -89,7 +89,7 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
       title: title.trim(),
       description: description.trim() || null,
       priority,
-      assignedUserId: assignedUserId ? Number(assignedUserId) : null,
+      assignedUserId: assignedUserId && assignedUserId !== "none" ? Number(assignedUserId) : null,
       dueDate: dueDate || null,
       threadId: prefillThreadId ?? null,
     });
@@ -155,7 +155,7 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
                 <SelectValue placeholder="Unassigned" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="">Unassigned</SelectItem>
+                <SelectItem value="none">Unassigned</SelectItem>
                 {users?.map(u => (
                   <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>
                 ))}
@@ -197,7 +197,7 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
   const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/users"] });
   const [status, setStatus] = useState<string>(task?.status ?? "Open");
   const [priority, setPriority] = useState<string>(task?.priority ?? "Normal");
-  const [assignedUserId, setAssignedUserId] = useState<string>(task?.assignedUserId ? String(task.assignedUserId) : "");
+  const [assignedUserId, setAssignedUserId] = useState<string>(task?.assignedUserId ? String(task.assignedUserId) : "none");
   const [dueDate, setDueDate] = useState<string>(task?.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : "");
   const [description, setDescription] = useState<string>(task?.description ?? "");
 
@@ -229,7 +229,7 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
     updateMutation.mutate({
       status,
       priority,
-      assignedUserId: assignedUserId ? Number(assignedUserId) : null,
+      assignedUserId: assignedUserId && assignedUserId !== "none" ? Number(assignedUserId) : null,
       dueDate: dueDate || null,
       description: description.trim() || null,
     });
@@ -298,7 +298,7 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
                   <SelectValue placeholder="Unassigned" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Unassigned</SelectItem>
+                  <SelectItem value="none">Unassigned</SelectItem>
                   {users?.map(u => (
                     <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>
                   ))}
