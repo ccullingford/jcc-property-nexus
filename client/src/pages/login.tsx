@@ -57,7 +57,7 @@ export function Login() {
           {/* Brand */}
           <div className="mb-10">
             <div className="mb-6">
-              <img src={jccLogo} alt="JCC Property Group" className="h-16 w-auto object-contain" />
+              <img src={jccLogo} alt="JCC Property Group" className="w-full object-contain" />
             </div>
             <div className="flex items-center gap-2 mb-4">
               <span className="text-lg font-bold text-foreground tracking-widest uppercase">NEXUS</span>
