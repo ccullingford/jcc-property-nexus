@@ -195,7 +195,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const allUsers = await storage.getUsers();
         if (allUsers.length === 0) {
           user = await storage.createUser({ email, name: displayName, role: "admin" });
-          console.log(`[auth] Bootstrap: created first admin user ${email}`);
         } else {
           // If ALLOWED_EMAIL_DOMAIN is set and domain matches, auto-create as staff
           if (config.allowedDomain && email.endsWith(`@${config.allowedDomain}`)) {
