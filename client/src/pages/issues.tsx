@@ -824,7 +824,7 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
           </TabsContent>
 
           {/* Threads */}
-          <TabsContent value="threads" className="m-0 p-6 space-y-3">
+          <TabsContent value="threads" className="m-0 p-6 space-y-3 overflow-hidden">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">Linked Emails</p>
               <Button size="sm" variant="outline" onClick={() => setShowLinkThread(true)} data-testid="button-link-thread">
@@ -842,7 +842,7 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
             ) : (
               <div className="space-y-2">
                 {linkedThreads.map(lt => (
-                  <div key={lt.id} className="flex items-center gap-2 p-3 rounded-md border border-border bg-card" data-testid={`linked-thread-${lt.threadId}`}>
+                  <div key={lt.id} className="flex items-center gap-2 p-3 rounded-md border border-border bg-card min-w-0" data-testid={`linked-thread-${lt.threadId}`}>
                     <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">{lt.threadSubject || "(no subject)"}</p>
@@ -869,7 +869,7 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
           </TabsContent>
 
           {/* Tasks */}
-          <TabsContent value="tasks" className="m-0 p-6 space-y-3">
+          <TabsContent value="tasks" className="m-0 p-6 space-y-3 overflow-hidden">
             <div className="flex items-center justify-between">
               <p className="text-sm font-medium">Linked Tasks</p>
               <Button size="sm" variant="outline" onClick={() => setShowLinkTask(true)} data-testid="button-link-task">
@@ -887,7 +887,7 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
             ) : (
               <div className="space-y-2">
                 {linkedTasks.map(t => (
-                  <div key={t.id} className="flex items-center gap-2 p-3 rounded-md border border-border bg-card" data-testid={`linked-task-${t.id}`}>
+                  <div key={t.id} className="flex items-center gap-2 p-3 rounded-md border border-border bg-card min-w-0" data-testid={`linked-task-${t.id}`}>
                     <CheckCircle2 className={`h-4 w-4 shrink-0 ${t.status === "Completed" ? "text-green-500" : "text-muted-foreground"}`} />
                     <div className="flex-1 min-w-0">
                       <p className={`text-sm font-medium truncate ${t.status === "Completed" ? "line-through text-muted-foreground" : ""}`}>{t.title}</p>
