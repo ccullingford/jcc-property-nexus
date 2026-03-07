@@ -1,0 +1,342 @@
+# Nexus Development Prompt — Medium & Lower Priority Improvements
+
+Continue development of the Nexus platform using the existing architecture.
+
+Tech stack requirements:
+
+* React frontend
+* Node.js backend
+* PostgreSQL database
+* Maintain existing architecture and completed functionality
+* Use migrations for any schema changes
+* Keep the codebase portable (future AWS deployment)
+
+This phase focuses on **usability improvements, workflow acceleration, and system polish**.
+
+---
+
+# Features to Implement
+
+## 1. Draft New Email
+
+Add support for composing brand-new emails.
+
+### Requirements
+
+* Compose new email from anywhere in the system
+* Allow selecting sender mailbox:
+
+  * shared mailbox
+  * personal mailbox (only if owned by the current user)
+* Support:
+
+  * To / CC / BCC
+  * Subject
+  * Rich text body
+  * Attachments
+* Save draft capability
+* Send email
+* Ensure sent messages:
+
+  * appear in the correct thread
+  * sync properly with mailbox history
+
+### UI
+
+Add **"New Email"** to the global create menu.
+
+---
+
+# 2. Dark Mode
+
+Add application-wide dark mode.
+
+### Requirements
+
+* Toggle in **top-right user menu**
+* Modes:
+
+  * Light
+  * Dark
+* Persist preference per user
+* Apply styling consistently across:
+
+  * inbox
+  * thread view
+  * issues
+  * tasks
+  * contacts
+  * admin pages
+  * modals
+
+---
+
+# 3. Global Search
+
+Add unified search across major entities.
+
+### Search Scope
+
+* threads
+* issues
+* contacts
+* tasks
+* associations
+* units
+
+### Requirements
+
+* single search input
+* grouped results
+* fast results
+* return basic entity context
+
+Example result groups:
+
+Threads
+Issues
+Contacts
+Tasks
+Associations
+Units
+
+Future support for keyboard shortcut (Cmd/Ctrl + K) should be considered.
+
+---
+
+# 4. Global Create Menu
+
+Add a quick-create menu accessible from anywhere.
+
+### Actions
+
+* New Issue
+* New Task
+* New Contact
+* New Association
+* New Unit
+* New Email
+
+### UI
+
+Add a **"+" button in the main navigation bar**.
+
+Selecting an item should open a modal for quick creation.
+
+---
+
+# 5. Improve Unknown Contact Workflow
+
+When an email sender is not matched to an existing contact:
+
+### Show options
+
+* Create Contact
+* Search Existing Contacts
+* Ignore for now
+
+### Requirements
+
+* Pre-fill:
+
+  * email
+  * display name (if available)
+* allow linking the email/thread to a newly created contact
+* allow linking to an existing contact
+
+---
+
+# 6. Duplicate Contact Management
+
+Add tools to detect and merge duplicate contacts.
+
+### Detection signals
+
+* identical normalized email
+* identical normalized phone
+* similar names
+
+### Merge flow
+
+Allow user to:
+
+* compare two contacts
+* choose which fields to keep
+* merge records
+
+### Preserve relationships
+
+During merge, retain links to:
+
+* threads
+* issues
+* tasks
+* associations
+* units
+* notes
+
+---
+
+# 7. Notifications System
+
+Add an in-app notification system.
+
+### Notification Types
+
+* task assigned
+* issue assigned
+* issue updated
+* note mention
+
+### UI
+
+* bell icon in top navigation
+* unread count indicator
+* dropdown notification list
+* ability to mark read
+
+### Data model
+
+Create a notifications table with:
+
+* user_id
+* event_id (optional)
+* title
+* body
+* is_read
+* created_at
+
+---
+
+# 8. Next Thread Workflow
+
+Improve inbox triage speed.
+
+### Add "Next Thread" action
+
+When viewing a thread:
+
+* allow user to move to the next unresolved thread
+* optionally mark current thread read or resolved
+
+### Goal
+
+Enable fast inbox processing.
+
+---
+
+# 9. Improve Call-Pop Setup Instructions
+
+Add a help page explaining how to configure RingEX call pop.
+
+### Page should include
+
+* clear setup steps
+* copy/paste example URLs
+* explanation of parameters
+* troubleshooting section
+
+Example format:
+
+/call-pop?phone=+17045551234
+
+Explain:
+
+* required format
+* phone normalization
+* expected behavior
+
+---
+
+# 10. Solution Library (Initial Planning)
+
+Introduce the **Solution Library concept**, but do not fully implement the module yet.
+
+### Add to Admin
+
+A placeholder section:
+
+Admin → Solution Library
+
+### Initial functionality
+
+* create/edit solution entries
+* searchable list
+
+Fields should include:
+
+title
+summary
+issue_type_id
+symptoms
+recommended_steps
+internal_notes
+response_template
+status (draft / approved)
+owner_user_id
+last_reviewed_at
+
+### Purpose
+
+This repository will later support:
+
+* staff guidance
+* AI suggestions
+* standardized responses
+
+---
+
+# Lower Priority UX Improvements
+
+Implement basic support for these improvements where feasible.
+
+## Expand Inbox Filtering
+
+Allow filtering by:
+
+* has task
+* has issue
+* mailbox
+* association
+* unread
+
+## Long Thread Readability
+
+Improve thread view by:
+
+* collapsing older messages
+* highlighting newest unread message
+
+## Contact Timeline Improvements
+
+Enhance contact timeline to show:
+
+* issues
+* threads
+* calls (future)
+* tasks
+
+---
+
+# General Requirements
+
+* Maintain existing Nexus architecture
+* Do not break completed functionality
+* Keep UI consistent with existing layout
+* Use database migrations for schema updates
+* Write clear backend services for new features
+* Ensure APIs remain clean and modular
+
+---
+
+# Deliverables
+
+For each feature, provide:
+
+1. Database schema updates (if any)
+2. API routes created or modified
+3. Frontend components added or updated
+4. Any migration steps
+5. Summary of behavior changes
+
+Focus on **clean architecture, modular services, and maintainability**.
