@@ -135,10 +135,10 @@
                 {CONTACT_IMPORT_SYSTEM_FIELDS.map(f => (
                   <div key={f.key} className="grid grid-cols-2 gap-3 items-center">
                     <label className="text-xs text-foreground">{f.label}</label>
-                    <Select value={mapping[f.key] ?? ""} onValueChange={v => setMapping(prev => ({ ...prev, [f.key]: v }))}>
+                    <Select value={mapping[f.key] ?? "__skip__"} onValueChange={v => setMapping(prev => { const next = { ...prev }; if (v === "__skip__") { delete next[f.key]; } else { next[f.key] = v; } return next; })}>
                       <SelectTrigger className="h-7 text-xs" data-testid={`mapping-${f.key}`}><SelectValue placeholder="— skip —" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">— skip —</SelectItem>
+                        <SelectItem value="__skip__">— skip —</SelectItem>
                         {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
                       </SelectContent>
                     </Select>
