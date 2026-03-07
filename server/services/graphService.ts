@@ -313,7 +313,7 @@ export async function sendMail(
   payload: SendMailPayload,
   token?: string
 ): Promise<void> {
-  const resolvedToken = token ?? await getSyncToken();
+  const resolvedToken = token ?? await getAccessToken();
   const path = `/users/${encodeURIComponent(mailboxAddress)}/sendMail`;
   const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
     method: "POST",
