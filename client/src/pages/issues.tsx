@@ -845,7 +845,7 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
                   <div key={lt.id} className="flex items-center gap-2 p-3 rounded-md border border-border bg-card min-w-0" data-testid={`linked-thread-${lt.threadId}`}>
                     <Mail className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{lt.threadSubject || "(no subject)"}</p>
+                      <p className="text-sm font-medium break-words">{lt.threadSubject || "(no subject)"}</p>
                       <p className="text-xs text-muted-foreground">{lt.threadStatus} · {relativeTime(lt.threadReceivedAt ?? undefined)}</p>
                     </div>
                     <div className="flex gap-1">
