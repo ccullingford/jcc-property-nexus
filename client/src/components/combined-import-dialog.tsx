@@ -263,7 +263,7 @@ export function CombinedImportDialog({ open, onClose }: { open: boolean; onClose
                 })}
               </div>
               <DialogFooter className="pt-2 border-t">
-                <Button variant="outline" size="sm" onClick={reset}>Back</Button>
+                <Button variant="outline" size="sm" onClick={reset}>Start over</Button>
                 <Button size="sm" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending} data-testid="button-combined-preview">
                   {previewMutation.isPending ? "Previewing…" : <>Preview <ChevronRight className="h-3.5 w-3.5 ml-1" /></>}
                 </Button>
@@ -346,7 +346,7 @@ export function CombinedImportDialog({ open, onClose }: { open: boolean; onClose
               )}
 
               <DialogFooter className="pt-2 border-t">
-                <Button variant="outline" size="sm" onClick={() => setStep(2)}>Back</Button>
+                <Button variant="outline" size="sm" onClick={() => { setMapping(autoDetectCombinedMapping(headers)); setStep(2); }}>Back</Button>
                 <Button
                   size="sm"
                   onClick={() => executeMutation.mutate()}
