@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { startSyncScheduler } from "./services/mailboxSyncScheduler";
 import { createServer } from "http";
+import { storage } from "./storage";
 
 const app = express();
 app.set("trust proxy", 1);
@@ -61,8 +62,31 @@ app.use((req, res, next) => {
   next();
 });
 
+async function seedTypeLabels() {
+  const existing = await storage.getTypeLabels();
+  if (existing.length > 0) return;
+  const defaults = [
+    { category: "issue_type", name: "Maintenance", sortOrder: 0 },
+    { category: "issue_type", name: "Violation", sortOrder: 1 },
+    { category: "issue_type", name: "Request", sortOrder: 2 },
+    { category: "issue_type", name: "Billing", sortOrder: 3 },
+    { category: "issue_type", name: "General", sortOrder: 4 },
+    { category: "task_type", name: "Follow-up", sortOrder: 0 },
+    { category: "task_type", name: "Inspection", sortOrder: 1 },
+    { category: "task_type", name: "Repair", sortOrder: 2 },
+    { category: "task_type", name: "Administrative", sortOrder: 3 },
+    { category: "task_type", name: "Communication", sortOrder: 4 },
+    { category: "task_type", name: "General", sortOrder: 5 },
+  ];
+  for (const d of defaults) {
+    await storage.createTypeLabel({ ...d, isActive: true });
+  }
+  console.log("[seed] type_labels seeded with defaults");
+}
+
 (async () => {
   await registerRoutes(httpServer, app);
+  await seedTypeLabels();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

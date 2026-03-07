@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +19,7 @@ import {
 } from "lucide-react";
 import type { IssueWithDetails, IssueTimelineItem, IssueThreadWithThread, TaskWithMeta, NoteWithUser } from "@shared/routes";
 import { ISSUE_STATUSES, ISSUE_PRIORITIES } from "@shared/routes";
-import type { Association, Unit } from "@shared/schema";
+import type { Association, Unit, TypeLabel } from "@shared/schema";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,6 +67,7 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
   const [title, setTitle] = useState(defaultTitle ?? "");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("Normal");
+  const [issueType, setIssueType] = useState<string>("General");
   const [associationId, setAssociationId] = useState<string>("none");
   const [unitId, setUnitId] = useState<string>("none");
 
@@ -78,6 +78,12 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
     enabled: open && associationId !== "none",
   });
 
+  const { data: issueTypes = [] } = useQuery<TypeLabel[]>({
+    queryKey: ["/api/type-labels", { category: "issue_type" }],
+    queryFn: () => fetch("/api/type-labels?category=issue_type").then(r => r.json()),
+    enabled: open,
+  });
+
   function handleAssocChange(val: string) { setAssociationId(val); setUnitId("none"); }
 
   const createMutation = useMutation({
@@ -86,6 +92,7 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
         title,
         description: description || null,
         priority,
+        issueType,
         associationId: associationId !== "none" ? Number(associationId) : null,
         unitId: unitId !== "none" ? Number(unitId) : null,
       });
@@ -102,6 +109,7 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
       setTitle(defaultTitle ?? "");
       setDescription("");
       setPriority("Normal");
+      setIssueType("General");
       setAssociationId("none");
       setUnitId("none");
     },
@@ -134,18 +142,33 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
               rows={3}
             />
           </div>
-          <div className="space-y-1.5">
-            <label className="text-sm font-medium">Priority</label>
-            <Select value={priority} onValueChange={setPriority}>
-              <SelectTrigger data-testid="select-issue-priority">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ISSUE_PRIORITIES.map(p => (
-                  <SelectItem key={p} value={p}>{p}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Priority</label>
+              <Select value={priority} onValueChange={setPriority}>
+                <SelectTrigger data-testid="select-issue-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ISSUE_PRIORITIES.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Type</label>
+              <Select value={issueType} onValueChange={setIssueType}>
+                <SelectTrigger data-testid="select-issue-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {issueTypes.filter(t => t.isActive).map(t => (
+                    <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
@@ -358,6 +381,11 @@ function IssueListItem({
             <Badge variant={priorityVariant(issue.priority)} className="text-xs">
               {issue.priority}
             </Badge>
+            {issue.issueType && issue.issueType !== "General" && (
+              <Badge variant="outline" className="text-xs">
+                {issue.issueType}
+              </Badge>
+            )}
             {issue.contactName && (
               <span className="text-xs text-muted-foreground flex items-center gap-1">
                 <User className="h-3 w-3" />
@@ -465,6 +493,82 @@ function IssueAssociationSection({ issue, onUpdate }: { issue: IssueWithDetails;
   );
 }
 
+// ─── Inline Thread Viewer ─────────────────────────────────────────────────────
+
+interface InlineMessage {
+  id: number;
+  senderName: string;
+  senderEmail: string;
+  bodyPreview: string;
+  bodyHtml: string | null;
+  bodyText: string | null;
+  receivedAt: string;
+  direction: string;
+  subject: string;
+}
+
+function InlineThreadViewer({ threadId, threadSubject, onBack }: { threadId: number; threadSubject: string; onBack: () => void }) {
+  const { data: messages, isLoading } = useQuery<InlineMessage[]>({
+    queryKey: ["/api/threads", threadId, "messages"],
+    queryFn: () => fetch(`/api/threads/${threadId}/messages`).then(r => r.json()),
+  });
+
+  const sorted = messages ? [...messages].sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()) : [];
+
+  function formatTime(ts: string) {
+    const d = new Date(ts);
+    const diff = Date.now() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `${hours}h ago`;
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  }
+
+  return (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="px-6 py-3 border-b border-border flex items-center gap-3 shrink-0">
+        <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={onBack} data-testid="button-back-from-thread">
+          ← Back
+        </Button>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium truncate">{threadSubject}</p>
+          <p className="text-xs text-muted-foreground">{messages?.length ?? 0} messages</p>
+        </div>
+      </div>
+      <ScrollArea className="flex-1">
+        <div className="p-4 space-y-4">
+          {isLoading ? (
+            [1, 2, 3].map(i => <Skeleton key={i} className="h-24 w-full rounded" />)
+          ) : sorted.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No messages found.</p>
+          ) : (
+            sorted.map(msg => (
+              <div key={msg.id} className={`rounded-lg border p-4 ${msg.direction === "outbound" ? "border-primary/20 bg-primary/5" : "border-border bg-card"}`} data-testid={`inline-message-${msg.id}`}>
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium">{msg.senderName || msg.senderEmail}</p>
+                    <p className="text-xs text-muted-foreground">{msg.senderEmail}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {msg.direction === "outbound" && <Badge variant="secondary" className="text-xs h-5">Sent</Badge>}
+                    <span className="text-xs text-muted-foreground">{formatTime(msg.receivedAt)}</span>
+                  </div>
+                </div>
+                {msg.bodyHtml ? (
+                  <div className="text-sm text-foreground border-t border-border/50 pt-2 mt-2 prose prose-sm max-w-none dark:prose-invert overflow-auto max-h-64" dangerouslySetInnerHTML={{ __html: msg.bodyHtml }} />
+                ) : (
+                  <p className="text-sm text-foreground border-t border-border/50 pt-2 mt-2 whitespace-pre-wrap">{msg.bodyPreview || msg.bodyText || "(no body)"}</p>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
+
 // ─── Issue Detail Panel ────────────────────────────────────────────────────────
 
 function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpdated: () => void }) {
@@ -476,6 +580,7 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
   const [noteBody, setNoteBody] = useState("");
   const [showLinkThread, setShowLinkThread] = useState(false);
   const [showLinkTask, setShowLinkTask] = useState(false);
+  const [viewingThread, setViewingThread] = useState<{ id: number; subject: string } | null>(null);
 
   const { data: linkedThreads, isLoading: threadsLoading } = useQuery<IssueThreadWithThread[]>({
     queryKey: ["/api/issues", issue.id, "threads"],
@@ -495,6 +600,11 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
   const { data: timeline, isLoading: timelineLoading } = useQuery<IssueTimelineItem[]>({
     queryKey: ["/api/issues", issue.id, "timeline"],
     queryFn: () => fetch(`/api/issues/${issue.id}/timeline`).then(r => r.json()),
+  });
+
+  const { data: issueTypes = [] } = useQuery<TypeLabel[]>({
+    queryKey: ["/api/type-labels", { category: "issue_type" }],
+    queryFn: () => fetch("/api/type-labels?category=issue_type").then(r => r.json()),
   });
 
   const updateMutation = useMutation({
@@ -537,10 +647,18 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
-  const [, navigate] = useLocation();
-
   const linkedThreadIds = linkedThreads?.map(t => t.threadId) ?? [];
   const linkedTaskIds = linkedTasks?.map(t => t.id) ?? [];
+
+  if (viewingThread) {
+    return (
+      <InlineThreadViewer
+        threadId={viewingThread.id}
+        threadSubject={viewingThread.subject}
+        onBack={() => setViewingThread(null)}
+      />
+    );
+  }
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
@@ -620,18 +738,34 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
               </div>
             </div>
 
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Priority</p>
-              <Select value={issue.priority} onValueChange={v => updateMutation.mutate({ priority: v })}>
-                <SelectTrigger className="w-32" data-testid="select-edit-priority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {ISSUE_PRIORITIES.map(p => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Priority</p>
+                <Select value={issue.priority} onValueChange={v => updateMutation.mutate({ priority: v })}>
+                  <SelectTrigger className="w-full" data-testid="select-edit-priority">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ISSUE_PRIORITIES.map(p => (
+                      <SelectItem key={p} value={p}>{p}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Type</p>
+                <Select value={issue.issueType ?? "General"} onValueChange={v => updateMutation.mutate({ issueType: v })}>
+                  <SelectTrigger className="w-full" data-testid="select-edit-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {issueTypes.filter(t => t.isActive).map(t => (
+                      <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
 
             {issue.assigneeName && (
@@ -713,7 +847,7 @@ function IssueDetailPanel({ issue, onUpdated }: { issue: IssueWithDetails; onUpd
                       <p className="text-xs text-muted-foreground">{lt.threadStatus} · {relativeTime(lt.threadReceivedAt ?? undefined)}</p>
                     </div>
                     <div className="flex gap-1">
-                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => navigate("/inbox")} data-testid={`button-view-thread-${lt.threadId}`}>
+                      <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" onClick={() => setViewingThread({ id: lt.threadId, subject: lt.threadSubject || "(no subject)" })} data-testid={`button-view-thread-${lt.threadId}`}>
                         View
                       </Button>
                       <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive" onClick={() => unlinkThreadMutation.mutate(lt.threadId)} data-testid={`button-unlink-thread-${lt.threadId}`}>

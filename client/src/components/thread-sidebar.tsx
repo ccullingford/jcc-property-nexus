@@ -17,7 +17,7 @@ import {
   CheckCircle2, XCircle, Clock, AlertTriangle, Calendar,
   Users, Search, Link2, Unlink, X, AlertCircle, Building2, MapPin,
 } from "lucide-react";
-import type { User as UserType } from "@shared/schema";
+import type { User as UserType, TypeLabel } from "@shared/schema";
 import type { NoteWithUser, ActivityWithUser, TaskWithMeta, ContactWithDetails, ThreadContactWithContact, IssueWithDetails } from "@shared/routes";
 import { TASK_STATUSES, TASK_PRIORITIES, ISSUE_PRIORITIES } from "@shared/routes";
 
@@ -177,9 +177,16 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
   const { toast } = useToast();
   const [title, setTitle] = useState(defaultTitle);
   const [priority, setPriority] = useState("Normal");
+  const [taskType, setTaskType] = useState("General");
   const [assignedUserId, setAssignedUserId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
+
+  const { data: taskTypes = [] } = useQuery<TypeLabel[]>({
+    queryKey: ["/api/type-labels", { category: "task_type" }],
+    queryFn: () => fetch("/api/type-labels?category=task_type").then(r => r.json()),
+    enabled: open,
+  });
 
   const createMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiRequest("POST", "/api/tasks", data),
@@ -189,7 +196,7 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
       queryClient.invalidateQueries({ queryKey: ["/api/threads", threadId, "activity"] });
       toast({ title: "Task created" });
       onClose();
-      setTitle(defaultTitle); setPriority("Normal"); setAssignedUserId(""); setDueDate(""); setDescription("");
+      setTitle(defaultTitle); setPriority("Normal"); setTaskType("General"); setAssignedUserId(""); setDueDate(""); setDescription("");
     },
     onError: (e: Error) => toast({ title: "Failed to create task", description: e.message, variant: "destructive" }),
   });
@@ -200,7 +207,8 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
       title: title.trim(),
       description: description.trim() || null,
       priority,
-      assignedUserId: assignedUserId ? Number(assignedUserId) : null,
+      taskType,
+      assignedUserId: (assignedUserId && assignedUserId !== "__unassigned__") ? Number(assignedUserId) : null,
       dueDate: dueDate || null,
       threadId,
     });
@@ -246,6 +254,31 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
               </Select>
             </div>
             <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
+              <Select value={taskType} onValueChange={setTaskType}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {taskTypes.filter(t => t.isActive).map(t => <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Assign to</label>
+              <Select value={assignedUserId} onValueChange={setAssignedUserId}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-assignee">
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__unassigned__">Unassigned</SelectItem>
+                  {users?.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Due date</label>
               <Input
                 type="date"
@@ -255,18 +288,6 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
                 data-testid="input-thread-task-due-date"
               />
             </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Assign to</label>
-            <Select value={assignedUserId} onValueChange={setAssignedUserId}>
-              <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-assignee">
-                <SelectValue placeholder="Unassigned" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Unassigned</SelectItem>
-                {users?.map(u => <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>)}
-              </SelectContent>
-            </Select>
           </div>
         </div>
         <DialogFooter>
@@ -334,6 +355,7 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
   const [issueTitle, setIssueTitle] = useState("");
   const [issueDesc, setIssueDesc] = useState("");
   const [issuePriority, setIssuePriority] = useState("Normal");
+  const [issueType, setIssueType] = useState("General");
   const [issueSearch, setIssueSearch] = useState("");
 
   const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/users"] });
@@ -450,12 +472,18 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
     enabled: showLinkIssue,
   });
 
+  const { data: issueTypes = [] } = useQuery<TypeLabel[]>({
+    queryKey: ["/api/type-labels", { category: "issue_type" }],
+    queryFn: () => fetch("/api/type-labels?category=issue_type").then(r => r.json()),
+  });
+
   const createIssueMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/issues", {
         title: issueTitle || threadSubject,
         description: issueDesc || null,
         priority: issuePriority,
+        issueType,
       });
       const issue: IssueWithDetails = await res.json();
       await apiRequest("POST", `/api/issues/${issue.id}/link-thread`, { threadId });
@@ -469,6 +497,7 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
       setIssueTitle("");
       setIssueDesc("");
       setIssuePriority("Normal");
+      setIssueType("General");
     },
     onError: (e: Error) => toast({ title: "Failed to create issue", description: e.message, variant: "destructive" }),
   });
@@ -650,18 +679,33 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
                     rows={3}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Priority</label>
-                  <Select value={issuePriority} onValueChange={setIssuePriority}>
-                    <SelectTrigger data-testid="select-sidebar-issue-priority">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {ISSUE_PRIORITIES.map(p => (
-                        <SelectItem key={p} value={p}>{p}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Priority</label>
+                    <Select value={issuePriority} onValueChange={setIssuePriority}>
+                      <SelectTrigger data-testid="select-sidebar-issue-priority">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {ISSUE_PRIORITIES.map(p => (
+                          <SelectItem key={p} value={p}>{p}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Type</label>
+                    <Select value={issueType} onValueChange={setIssueType}>
+                      <SelectTrigger data-testid="select-sidebar-issue-type">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {issueTypes.filter(t => t.isActive).map(t => (
+                          <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
               </div>
               <DialogFooter>

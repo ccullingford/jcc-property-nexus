@@ -80,6 +80,11 @@ export const contacts = pgTable("contacts", {
   notes: text("notes"),
   associationId: integer("association_id").references(() => associations.id),
   unitId: integer("unit_id").references(() => units.id),
+  mailingAddress1: text("mailing_address_1"),
+  mailingAddress2: text("mailing_address_2"),
+  mailingCity: text("mailing_city"),
+  mailingState: text("mailing_state"),
+  mailingPostalCode: text("mailing_postal_code"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -245,6 +250,7 @@ export const issues = pgTable("issues", {
   unitId: integer("unit_id").references(() => units.id),
   assignedUserId: integer("assigned_user_id").references(() => users.id),
   createdByUserId: integer("created_by_user_id").references(() => users.id),
+  issueType: text("issue_type"),
   status: text("status").notNull().default("Open"),
   priority: text("priority").notNull().default("Normal"),
   closedAt: timestamp("closed_at"),
@@ -282,6 +288,7 @@ export const tasks = pgTable("tasks", {
   createdByUserId: integer("created_by_user_id").references(() => users.id),
   title: text("title").notNull(),
   description: text("description"),
+  taskType: text("task_type"),
   status: text("status").notNull().default("Open"),
   priority: text("priority").notNull().default("Normal"),
   dueDate: timestamp("due_date"),
@@ -380,6 +387,22 @@ export const insertContactMergeLogSchema = createInsertSchema(contactMergeLog).o
 export type ContactMergeLog = typeof contactMergeLog.$inferSelect;
 
 // ============================================================
+// TYPE LABELS (issue types, task types — admin configurable)
+// ============================================================
+export const typeLabels = pgTable("type_labels", {
+  id: serial("id").primaryKey(),
+  category: text("category").notNull(),
+  name: text("name").notNull(),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertTypeLabelSchema = createInsertSchema(typeLabels).omit({ id: true, createdAt: true });
+export type TypeLabel = typeof typeLabels.$inferSelect;
+export type InsertTypeLabel = z.infer<typeof insertTypeLabelSchema>;
+
+// ============================================================
 // API CONTRACT TYPES
 // ============================================================
 export type UpdateUserRequest = Partial<InsertUser>;
@@ -390,3 +413,4 @@ export type UpdateAssociationRequest = Partial<InsertAssociation>;
 export type UpdateUnitRequest = Partial<InsertUnit>;
 export type UpdateIssueRequest = Partial<InsertIssue>;
 export type UpdateTaskRequest = Partial<InsertTask>;
+export type UpdateTypeLabelRequest = Partial<InsertTypeLabel>;

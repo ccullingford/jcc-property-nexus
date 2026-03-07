@@ -1,3 +1,4 @@
+import { importAssociations, importUnits } from "./services/associationImportService";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
@@ -80,6 +81,12 @@ function requireRole(...roles: string[]) {
   };
 }
 
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const role = req.session?.userRole ?? "staff";
+  if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
+  next();
+}
+
 // ─── Redirect-URI builder ─────────────────────────────────────────────────────
 function buildRedirectUri(req: Request): string {
   const proto = req.get("x-forwarded-proto") || req.protocol;
@@ -124,6 +131,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (existingMailboxes.length === 0) {
         await storage.createMailbox({ name: "General Inquiry", type: "shared", isDefault: true, microsoftMailboxId: "inquiry@company.com" });
         await storage.createMailbox({ name: "Support", type: "shared", isDefault: false, microsoftMailboxId: "support@company.com" });
+      }
+
+      const existingLabels = await storage.getTypeLabels();
+      if (existingLabels.length === 0) {
+        const issueTypes = ["Maintenance", "Violation", "Request", "Billing", "General"];
+        const taskTypes = ["Follow-up", "Inspection", "Repair", "Administrative", "Communication", "General"];
+
+        for (const [idx, name] of issueTypes.entries()) {
+          await storage.createTypeLabel({ category: "issue_type", name, sortOrder: idx });
+        }
+        for (const [idx, name] of taskTypes.entries()) {
+          await storage.createTypeLabel({ category: "task_type", name, sortOrder: idx });
+        }
       }
     } catch (err) {
       console.error("Seed error:", err);
@@ -392,6 +412,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (q.status && typeof q.status === "string") filters.status = q.status;
     if (q.unreadOnly === "true") filters.unreadOnly = true;
     if (q.hasAttachments === "true") filters.hasAttachments = true;
+    if (q.sentOnly === "true") filters.sentOnly = true;
+    if (q.sentOnly === "false") filters.sentOnly = false;
     if (q.contactId) filters.contactId = Number(q.contactId);
     if (q.search && typeof q.search === "string") filters.search = q.search;
     if (q.dateFrom) filters.dateFrom = new Date(q.dateFrom as string);
@@ -1116,6 +1138,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (err instanceof z.ZodError) return res.status(400).json({ message: err.errors[0].message });
       res.status(500).json({ message: "Internal error" });
     }
+  });
+
+  // ─── Type Labels ──────────────────────────────────────────────────────────
+  app.get(api.typeLabels.list.path, async (req, res) => {
+    const category = req.query.category as string | undefined;
+    const labels = await storage.getTypeLabels(category);
+    res.json(labels);
+  });
+
+  app.post(api.typeLabels.create.path, requireAuth, requireAdmin, async (req, res) => {
+    const parsed = api.typeLabels.create.input.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.issues });
+    const label = await storage.createTypeLabel(parsed.data);
+    res.status(201).json(label);
+  });
+
+  app.patch(api.typeLabels.update.path, requireAuth, requireAdmin, async (req, res) => {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+    const label = await storage.updateTypeLabel(id, req.body);
+    res.json(label);
+  });
+
+  app.delete(api.typeLabels.delete.path, requireAuth, requireAdmin, async (req, res) => {
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+    await storage.deleteTypeLabel(id);
+    res.status(204).end();
   });
 
   // ─── Graph Status ─────────────────────────────────────────────────────────

@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import type { TaskWithMeta } from "@shared/routes";
-import type { User as UserType } from "@shared/schema";
+import type { User as UserType, TypeLabel } from "@shared/schema";
 import { TASK_STATUSES, TASK_PRIORITIES } from "@shared/routes";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -68,8 +68,15 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
   const [title, setTitle] = useState(prefillTitle);
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState<string>("Normal");
+  const [taskType, setTaskType] = useState<string>("General");
   const [assignedUserId, setAssignedUserId] = useState<string>("none");
   const [dueDate, setDueDate] = useState<string>("");
+
+  const { data: taskTypes = [] } = useQuery<TypeLabel[]>({
+    queryKey: ["/api/type-labels", { category: "task_type" }],
+    queryFn: () => fetch("/api/type-labels?category=task_type").then(r => r.json()),
+    enabled: open,
+  });
 
   const createMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiRequest("POST", "/api/tasks", data),
@@ -78,7 +85,7 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
       if (prefillThreadId) queryClient.invalidateQueries({ queryKey: ["/api/threads", prefillThreadId, "tasks"] });
       toast({ title: "Task created" });
       onClose();
-      setTitle(""); setDescription(""); setPriority("Normal"); setAssignedUserId(""); setDueDate("");
+      setTitle(""); setDescription(""); setPriority("Normal"); setTaskType("General"); setAssignedUserId(""); setDueDate("");
     },
     onError: (e: Error) => toast({ title: "Failed to create task", description: e.message, variant: "destructive" }),
   });
@@ -89,6 +96,7 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
       title: title.trim(),
       description: description.trim() || null,
       priority,
+      taskType,
       assignedUserId: assignedUserId && assignedUserId !== "none" ? Number(assignedUserId) : null,
       dueDate: dueDate || null,
       threadId: prefillThreadId ?? null,
@@ -138,6 +146,35 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
               </Select>
             </div>
             <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
+              <Select value={taskType} onValueChange={setTaskType}>
+                <SelectTrigger data-testid="select-task-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {taskTypes.filter(t => t.isActive).map(t => (
+                    <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Assign to</label>
+              <Select value={assignedUserId} onValueChange={setAssignedUserId}>
+                <SelectTrigger data-testid="select-task-assignee">
+                  <SelectValue placeholder="Unassigned" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">Unassigned</SelectItem>
+                  {users?.map(u => (
+                    <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Due date</label>
               <Input
                 type="date"
@@ -147,20 +184,6 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
                 data-testid="input-task-due-date"
               />
             </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Assign to</label>
-            <Select value={assignedUserId} onValueChange={setAssignedUserId}>
-              <SelectTrigger data-testid="select-task-assignee">
-                <SelectValue placeholder="Unassigned" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">Unassigned</SelectItem>
-                {users?.map(u => (
-                  <SelectItem key={u.id} value={String(u.id)}>{u.name ?? u.email}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
           {prefillThreadId && (
             <p className="text-xs text-muted-foreground flex items-center gap-1">
@@ -197,9 +220,15 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
   const { data: users } = useQuery<UserType[]>({ queryKey: ["/api/users"] });
   const [status, setStatus] = useState<string>(task?.status ?? "Open");
   const [priority, setPriority] = useState<string>(task?.priority ?? "Normal");
+  const [taskType, setTaskType] = useState<string>(task?.taskType ?? "General");
   const [assignedUserId, setAssignedUserId] = useState<string>(task?.assignedUserId ? String(task.assignedUserId) : "none");
   const [dueDate, setDueDate] = useState<string>(task?.dueDate ? new Date(task.dueDate).toISOString().split("T")[0] : "");
   const [description, setDescription] = useState<string>(task?.description ?? "");
+
+  const { data: taskTypes = [] } = useQuery<TypeLabel[]>({
+    queryKey: ["/api/type-labels", { category: "task_type" }],
+    queryFn: () => fetch("/api/type-labels?category=task_type").then(r => r.json()),
+  });
 
   const updateMutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiRequest("PATCH", `/api/tasks/${task!.id}`, data),
@@ -229,6 +258,7 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
     updateMutation.mutate({
       status,
       priority,
+      taskType,
       assignedUserId: assignedUserId && assignedUserId !== "none" ? Number(assignedUserId) : null,
       dueDate: dueDate || null,
       description: description.trim() || null,
@@ -264,6 +294,34 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Priority</label>
+              <Select value={priority} onValueChange={setPriority}>
+                <SelectTrigger data-testid="select-edit-task-priority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TASK_PRIORITIES.map(p => (
+                    <SelectItem key={p} value={p}>{p}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
+              <Select value={taskType} onValueChange={setTaskType}>
+                <SelectTrigger data-testid="select-edit-task-type">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {taskTypes.filter(t => t.isActive).map(t => (
+                    <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Status</label>
               <Select value={status} onValueChange={setStatus}>
                 <SelectTrigger data-testid="select-edit-task-status">
@@ -277,21 +335,6 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
               </Select>
             </div>
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Priority</label>
-              <Select value={priority} onValueChange={setPriority}>
-                <SelectTrigger data-testid="select-edit-task-priority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TASK_PRIORITIES.map(p => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Assign to</label>
               <Select value={assignedUserId} onValueChange={setAssignedUserId}>
                 <SelectTrigger data-testid="select-edit-task-assignee">
@@ -304,16 +347,6 @@ function EditTaskDialog({ task, onClose }: EditTaskDialogProps) {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Due date</label>
-              <Input
-                type="date"
-                value={dueDate}
-                onChange={e => setDueDate(e.target.value)}
-                className="text-sm"
-                data-testid="input-edit-task-due-date"
-              />
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -369,6 +402,9 @@ function TaskRow({ task, onClick }: { task: TaskWithMeta; onClick: () => void })
           <Badge variant={priorityVariant(task.priority)} className="text-xs shrink-0">
             {task.priority}
           </Badge>
+          {task.taskType && task.taskType !== "General" && (
+            <Badge variant="outline" className="text-xs shrink-0">{task.taskType}</Badge>
+          )}
           {task.status !== "Open" && (
             <Badge variant="outline" className="text-xs shrink-0">{task.status}</Badge>
           )}

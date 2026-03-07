@@ -7,6 +7,7 @@ import {
   users, mailboxes, emailThreads, messages, attachments,
   contacts, contactPhones, contactEmails, threadContacts,
   properties, units, issues, tasks, calls, issueThreads,
+  typeLabels, insertTypeLabelSchema,
 } from './schema';
 
 export type NoteWithUser = {
@@ -318,6 +319,31 @@ export const api = {
       method: 'GET' as const,
       path: '/api/graph/status' as const,
       responses: { 200: z.object({ configured: z.boolean(), message: z.string() }) },
+    },
+  },
+
+  typeLabels: {
+    list: {
+      method: 'GET' as const,
+      path: '/api/type-labels' as const,
+      responses: { 200: z.array(z.custom<typeof typeLabels.$inferSelect>()) },
+    },
+    create: {
+      method: 'POST' as const,
+      path: '/api/type-labels' as const,
+      input: insertTypeLabelSchema,
+      responses: { 201: z.custom<typeof typeLabels.$inferSelect>() },
+    },
+    update: {
+      method: 'PATCH' as const,
+      path: '/api/type-labels/:id' as const,
+      input: insertTypeLabelSchema.partial(),
+      responses: { 200: z.custom<typeof typeLabels.$inferSelect>() },
+    },
+    delete: {
+      method: 'DELETE' as const,
+      path: '/api/type-labels/:id' as const,
+      responses: { 204: z.void() },
     },
   },
 };

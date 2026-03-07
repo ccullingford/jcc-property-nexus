@@ -1,6 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
+import { useMailboxes } from "@/hooks/use-mailboxes";
 import {
   Sidebar,
   SidebarContent,
@@ -21,7 +22,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut } from "lucide-react";
+import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Mail, ExternalLink } from "lucide-react";
 
 const navItems = [
   { title: "Inbox", url: "/inbox", icon: Inbox },

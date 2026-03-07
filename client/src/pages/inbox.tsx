@@ -39,6 +39,7 @@ interface InboxFilters {
   unreadOnly: boolean;
   hasAttachments: boolean;
   assignedUserId: string;
+  view: "inbox" | "sent";
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -564,10 +565,12 @@ function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; current
 
   const { data: messages, isLoading, refetch } = useQuery<MessageWithAttachments[]>({
     queryKey: ["/api/threads", thread.id, "messages"],
-    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 
-  const latestInbound = messages?.find(m => (m as any).direction !== "outbound") ?? null;
+  const sortedMessages = messages ? [...messages].sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()) : [];
+
+  const latestInbound = sortedMessages.find(m => m.direction !== "outbound") || null;
 
   const openReply = useCallback((message: MessageWithAttachments, replyAll: boolean) => {
     setReplyState({ message, replyAll });
@@ -619,20 +622,27 @@ function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; current
                   <Skeleton className="h-32 w-full rounded-lg" />
                   <Skeleton className="h-24 w-full rounded-lg" />
                 </>
-              ) : !messages || messages.length === 0 ? (
+              ) : !sortedMessages || sortedMessages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="thread-no-messages">
                   <Mail className="h-8 w-8 text-muted-foreground/40 mb-3" />
                   <p className="text-sm text-muted-foreground">No messages in this thread.</p>
                 </div>
               ) : (
-                messages.map(msg => (
-                  <MessageCard
-                    key={msg.id}
-                    message={msg}
-                    onReply={() => openReply(msg, false)}
-                    onReplyAll={() => openReply(msg, true)}
-                  />
-                ))
+                <>
+                  <div className="flex items-center gap-2 py-2">
+                    <div className="h-px flex-1 bg-border" />
+                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Newest Messages</span>
+                    <div className="h-px flex-1 bg-border" />
+                  </div>
+                  {sortedMessages.map(msg => (
+                    <MessageCard
+                      key={msg.id}
+                      message={msg}
+                      onReply={() => openReply(msg, false)}
+                      onReplyAll={() => openReply(msg, true)}
+                    />
+                  ))}
+                </>
               )}
             </div>
           </ScrollArea>
@@ -776,6 +786,7 @@ export function InboxPage() {
     unreadOnly: false,
     hasAttachments: false,
     assignedUserId: "all",
+    view: "inbox",
   });
 
   const debouncedSearch = useDebounce(searchInput, 350);
@@ -802,6 +813,7 @@ export function InboxPage() {
     if (filters.unreadOnly) params.set("unreadOnly", "true");
     if (filters.hasAttachments) params.set("hasAttachments", "true");
     if (filters.assignedUserId !== "all") params.set("assignedUserId", filters.assignedUserId);
+    params.set("sentOnly", filters.view === "sent" ? "true" : "false");
     return `/api/threads?${params.toString()}`;
   };
 
@@ -812,7 +824,7 @@ export function InboxPage() {
       if (!res.ok) throw new Error(res.statusText);
       return res.json();
     },
-    refetchInterval: 60_000,
+    staleTime: 30_000,
   });
 
   const sync = useSyncMailbox(activeMailboxId!);
@@ -858,6 +870,23 @@ export function InboxPage() {
         )}
 
         <div className="flex-1" />
+
+        <div className="flex items-center gap-1 bg-muted p-1 rounded-lg" data-testid="inbox-view-toggle">
+          <button
+            onClick={() => setFilters(f => ({ ...f, view: "inbox" }))}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${filters.view === "inbox" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            data-testid="button-view-inbox"
+          >
+            Inbox
+          </button>
+          <button
+            onClick={() => setFilters(f => ({ ...f, view: "sent" }))}
+            className={`px-3 py-1 text-xs font-medium rounded-md transition-all ${filters.view === "sent" ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
+            data-testid="button-view-sent"
+          >
+            Sent
+          </button>
+        </div>
 
         {unreadTotal > 0 && (
           <Badge variant="default" className="text-xs" data-testid="badge-unread-count">{unreadTotal} unread</Badge>
@@ -981,6 +1010,16 @@ export function InboxPage() {
   );
 }
 
+function StatusDot({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    Open: "bg-blue-500",
+    Waiting: "bg-amber-500",
+    Closed: "bg-slate-400",
+    Archived: "bg-slate-600",
+  };
+  return <div className={`h-2 w-2 rounded-full shrink-0 ${colors[status] || "bg-gray-300"}`} />;
+}
+
 // ─── Thread list item ─────────────────────────────────────────────────────────
 function ThreadItem({
   thread, selected, onClick,
@@ -997,21 +1036,24 @@ function ThreadItem({
       data-testid={`thread-item-${thread.id}`}
     >
       <div className="flex items-start justify-between gap-2 mb-0.5">
-        <span className={`text-sm truncate leading-5 ${hasUnread ? "font-semibold text-foreground" : "text-muted-foreground"}`} data-testid={`thread-sender-${thread.id}`}>
-          {senderDisplay(thread)}
-        </span>
+        <div className="flex items-center gap-2 min-w-0">
+          <StatusDot status={thread.status} />
+          <span className={`text-sm truncate leading-5 ${hasUnread ? "font-semibold text-foreground" : "text-muted-foreground"}`} data-testid={`thread-sender-${thread.id}`}>
+            {senderDisplay(thread)}
+          </span>
+        </div>
         <span className="text-xs text-muted-foreground whitespace-nowrap shrink-0 mt-0.5">
           {formatDate(thread.lastMessageAt)}
         </span>
       </div>
-      <div className="flex items-center gap-1.5">
+      <div className="flex items-center gap-1.5 ml-4">
         {hasUnread && <span className="h-2 w-2 rounded-full bg-primary shrink-0" data-testid={`unread-dot-${thread.id}`} />}
         <span className={`text-sm truncate ${hasUnread ? "font-medium text-foreground" : "text-muted-foreground"}`} data-testid={`thread-subject-${thread.id}`}>
           {thread.subject || "(no subject)"}
         </span>
       </div>
       {thread.hasAttachments && (
-        <div className="flex items-center gap-1 mt-1">
+        <div className="flex items-center gap-1 mt-1 ml-4">
           <Paperclip className="h-3 w-3 text-muted-foreground/60" />
           <span className="text-xs text-muted-foreground/60">Attachment</span>
         </div>

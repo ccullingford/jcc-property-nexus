@@ -16,6 +16,7 @@ import {
   type Note, type InsertNote,
   type Call, type InsertCall,
   type ActivityLog, type InsertActivityLog,
+  typeLabels, type TypeLabel, type InsertTypeLabel,
 } from "@shared/schema";
 import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull, ilike, gte, lte } from "drizzle-orm";
 import type { TaskWithMeta } from "@shared/routes";
@@ -37,6 +38,7 @@ export interface ThreadFilters {
   search?: string;
   dateFrom?: Date;
   dateTo?: Date;
+  sentOnly?: boolean;
 }
 
 export type MessageWithAttachments = Message & {
@@ -121,6 +123,12 @@ export interface IStorage {
   // Activity Log
   logActivity(entry: InsertActivityLog): Promise<ActivityLog>;
   getActivityByEntity(entityType: string, entityId: number): Promise<ActivityLog[]>;
+
+  // Type Labels
+  getTypeLabels(category?: string): Promise<TypeLabel[]>;
+  createTypeLabel(label: InsertTypeLabel): Promise<TypeLabel>;
+  updateTypeLabel(id: number, updates: Partial<InsertTypeLabel>): Promise<TypeLabel>;
+  deleteTypeLabel(id: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -190,6 +198,10 @@ export class DatabaseStorage implements IStorage {
 
       if (filters.unreadOnly && unreadCount === 0) continue;
       if (filters.hasAttachments && !hasAtt) continue;
+
+      const hasInbound = msgs.some(m => m.direction !== "outbound");
+      if (filters.sentOnly && hasInbound) continue;
+      if (filters.sentOnly === false && !hasInbound) continue;
 
       enriched.push({
         ...t,
@@ -331,6 +343,16 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(activityLog.entityType, entityType), eq(activityLog.entityId, entityId)))
       .orderBy(desc(activityLog.createdAt));
   }
+
+  // Type Labels
+  async getTypeLabels(category?: string) {
+    const q = db.select().from(typeLabels);
+    if (category) return q.where(eq(typeLabels.category, category)).orderBy(typeLabels.sortOrder, typeLabels.name);
+    return q.orderBy(typeLabels.category, typeLabels.sortOrder, typeLabels.name);
+  }
+  async createTypeLabel(l: InsertTypeLabel) { const [r] = await db.insert(typeLabels).values(l).returning(); return r; }
+  async updateTypeLabel(id: number, u: Partial<InsertTypeLabel>) { const [r] = await db.update(typeLabels).set(u).where(eq(typeLabels.id, id)).returning(); return r; }
+  async deleteTypeLabel(id: number) { await db.delete(typeLabels).where(eq(typeLabels.id, id)); }
 }
 
 export const storage = new DatabaseStorage();

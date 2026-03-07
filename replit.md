@@ -64,7 +64,7 @@ client/src/
 - **email_threads** — id, mailbox_id, subject, microsoft_thread_id, assigned_user_id, contact_id, property_id, status, last_message_at, updated_at, created_at
 - **messages** — id, thread_id, microsoft_message_id, sender_email, sender_name, recipients[], subject, body, body_html, body_preview, received_at, has_attachments, is_read, direction (inbound|outbound, default inbound), updated_at
 - **attachments** — id, message_id, microsoft_attachment_id, name, content_type, size_bytes
-- **contacts** — id, display_name, first_name (nullable), last_name (nullable), contact_type, primary_email, primary_phone, notes, updated_at, created_at; types = Owner|Tenant|Vendor|Board|Realtor|Attorney|Other
+- **contacts** — id, display_name, first_name (nullable), last_name (nullable), contact_type, primary_email, primary_phone, notes, association_id (nullable FK), unit_id (nullable FK), mailing_address_1, mailing_address_2, mailing_city, mailing_state, mailing_postal_code, updated_at, created_at; types = Owner|Tenant|Vendor|Board|Realtor|Attorney|Other
 - **contact_import_jobs** — id, uploaded_by_user_id, filename, row_count, imported_count, skipped_count, error_count, status (pending|processing|done|failed), created_at, completed_at
 - **contact_merge_log** — id, source_contact_id, target_contact_id, merged_by_user_id, merged_at
 - **contact_phones** — id, contact_id, phone_number (normalized E.164), label, is_primary, created_at
@@ -72,12 +72,13 @@ client/src/
 - **thread_contacts** — id, thread_id, contact_id, relationship_type (nullable), created_at
 - **properties** — id, name, address, association_name, created_at
 - **units** — id, property_id, unit_number, owner_contact_id, tenant_contact_id
-- **issues** — id, title, description, contact_id, property_id, unit_id, assigned_user_id, created_by_user_id, status (Open|In Progress|Waiting|Resolved|Closed), priority (Low|Normal|High|Urgent), closed_at, updated_at, created_at
+- **issues** — id, title, description, contact_id, association_id, property_id, unit_id, assigned_user_id, created_by_user_id, issue_type (nullable FK→type_labels name), status (Open|In Progress|Waiting|Resolved|Closed), priority (Low|Normal|High|Urgent), closed_at, updated_at, created_at
 - **issue_threads** — id, issue_id, thread_id, created_at (links issues ↔ email_threads)
-- **tasks** — id, issue_id, thread_id, contact_id (nullable FK→contacts), assigned_user_id, created_by_user_id, title, description, status (Open|In Progress|Completed|Cancelled), priority (Low|Normal|High|Urgent), due_date, updated_at, created_at
+- **tasks** — id, issue_id, thread_id, contact_id (nullable FK→contacts), assigned_user_id, created_by_user_id, title, description, task_type (nullable), status (Open|In Progress|Completed|Cancelled), priority (Low|Normal|High|Urgent), due_date, updated_at, created_at
 - **notes** — id, issue_id, thread_id, user_id, body, created_at
 - **calls** — id, phone_number, contact_id, user_id, started_at, ended_at, direction, notes, issue_id
 - **activity_log** — id, entity_type, entity_id, action, user_id, metadata, created_at
+- **type_labels** — id, category (issue_type|task_type), name, is_active (default true), sort_order (default 0), created_at; seeded with defaults on startup
 
 ## UI Layout
 3-panel workspace: **Sidebar** | **Main Workspace** | **Context Panel** (right, 288px, appears at lg breakpoint)
@@ -149,6 +150,12 @@ Roles: admin > manager > staff. `requireRole` middleware enforces per-route.
 - `POST /api/threads/:id/unassign` — remove assignee
 - `PATCH /api/threads/:id/status` — update thread status
 - `GET /api/contacts/lookup?email=` — find contact by email address, returns 404 if not found
+- `GET /api/type-labels?category=issue_type|task_type` — list type labels (filtered by category)
+- `POST /api/type-labels` — create type label (admin only)
+- `PATCH /api/type-labels/:id` — update type label (admin only)
+- `DELETE /api/type-labels/:id` — delete type label (admin only)
+- `POST /api/associations/import` — bulk import associations from CSV rows
+- `POST /api/units/import` — bulk import units from CSV rows
 
 ## Microsoft Graph Configuration
 Required environment secrets for OAuth and mailbox sync:
@@ -183,10 +190,11 @@ The Azure AD app needs:
 - `/tasks` — Task dashboard with My Tasks / Team Tasks / Overdue tabs; Create Task dialog; Edit Task dialog; issue badge on task rows
 - `/contacts` — Two-panel contacts: left=searchable list; right=detail (emails, phones, timeline) + inline create/edit
 - `/issues` — Two-panel issues: left=filterable list (status/priority filters); right=detail tabs (Overview, Threads, Tasks, Notes, Timeline); Create Issue dialog
-- `/admin` — Mailbox management
+- `/admin` — Tabbed admin panel: Mailboxes (manage + sync), Users (roles), Associations (create/edit + unit management), Imports (contact CSV + association/unit CSV import), Types (issue types + task types — add/edit/toggle/delete)
 - `/call-pop` — RingEX call pop screen
 
 ## Build Chunks Completed
+- **Chunk 10**: 13-fix improvement session — inline thread view in Issues email tab; inbox Inbox/Sent tabs + newest-first messages + color-coded status dots; contacts first/last name auto-populate + mailing address (schema + UI); type_labels table + seeding + admin Types tab (issue/task types — add/edit/toggle/delete) + type selector in create/edit issue/task forms; admin Imports tab (contact CSV + association/unit CSV import); user menu with Connect My Mailbox in layout header
 - **Chunk 1**: Foundation — app shell, schema, users, mailboxes, full DB schema
 - **Chunk 2**: Inbox Read — Microsoft Graph sync service, full inbox UI (thread list + message view), attachments
 - **Chunk 2b**: Microsoft OAuth — PKCE auth flow, RBAC middleware, login page, session management

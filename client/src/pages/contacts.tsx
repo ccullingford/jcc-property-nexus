@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { ImportWizardDialog } from "@/components/contact-import-dialog";
 import {
   Users, Search, Plus, Phone, Mail, Link2, MessageSquare,
   CheckCircle2, Clock, X, ChevronRight, Upload, Filter,
@@ -49,37 +50,9 @@ function relativeTime(ts: string): string {
   return new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function parseCSV(text: string): { headers: string[]; rows: Record<string, string>[] } {
-  const lines = text.split(/\r?\n/).filter(l => l.trim());
-  if (lines.length === 0) return { headers: [], rows: [] };
-  const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
-  const rows = lines.slice(1).map(line => {
-    const values = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
-    const row: Record<string, string> = {};
-    headers.forEach((h, i) => { row[h] = values[i] ?? ""; });
-    return row;
-  }).filter(r => Object.values(r).some(v => v));
-  return { headers, rows };
-}
 
-function autoDetectMapping(headers: string[]): Record<string, string> {
-  const lc = headers.map(h => h.toLowerCase());
-  const find = (...variants: string[]) => {
-    const h = lc.find(h => variants.some(v => h.includes(v)));
-    return h ? headers[lc.indexOf(h)] : "";
-  };
-  return {
-    displayName: find("display_name", "name", "full name", "fullname"),
-    firstName: find("first_name", "firstname", "first"),
-    lastName: find("last_name", "lastname", "last"),
-    primaryEmail: find("email", "primary_email", "e-mail"),
-    secondaryEmail: find("secondary_email", "email2", "alt_email"),
-    primaryPhone: find("phone", "primary_phone", "mobile"),
-    secondaryPhone: find("secondary_phone", "phone2", "alt_phone"),
-    contactType: find("type", "contact_type", "category"),
-    notes: find("notes", "note", "comments"),
-  };
-}
+
+
 
 // ─── Timeline item ────────────────────────────────────────────────────────────
 function TimelineItemRow({ item }: { item: ContactTimelineItem }) {
@@ -102,6 +75,8 @@ function TimelineItemRow({ item }: { item: ContactTimelineItem }) {
 // ─── Create Contact Dialog ────────────────────────────────────────────────────
 function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [contactType, setContactType] = useState("Other");
   const [primaryEmail, setPrimaryEmail] = useState("");
@@ -109,6 +84,12 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [notes, setNotes] = useState("");
   const [associationId, setAssociationId] = useState<string>("none");
   const [unitId, setUnitId] = useState<string>("none");
+  const [address1, setAddress1] = useState("");
+  const [address2, setAddress2] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
+  const [zip, setZip] = useState("");
+  const [showAddress, setShowAddress] = useState(false);
 
   const { data: associations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()) });
   const { data: assocUnits = [] } = useQuery<Unit[]>({
@@ -119,19 +100,33 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   function handleAssocChange(val: string) { setAssociationId(val); setUnitId("none"); }
 
+  // Auto-populate displayName from first+last if not manually edited
+  const lastAutoDisplayName = useRef("");
+  const handleNamesChange = useCallback((f: string, l: string) => {
+    const auto = `${f} ${l}`.trim();
+    if (displayName === lastAutoDisplayName.current) {
+      setDisplayName(auto);
+      lastAutoDisplayName.current = auto;
+    }
+  }, [displayName]);
+
   const mutation = useMutation({
     mutationFn: (data: Record<string, unknown>) => apiRequest("POST", "/api/contacts", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
       toast({ title: "Contact created" });
       onClose();
-      setDisplayName(""); setContactType("Other"); setPrimaryEmail(""); setPrimaryPhone(""); setNotes(""); setAssociationId("none"); setUnitId("none");
+      setFirstName(""); setLastName(""); setDisplayName(""); setContactType("Other"); setPrimaryEmail(""); setPrimaryPhone(""); setNotes(""); setAssociationId("none"); setUnitId("none");
+      setAddress1(""); setAddress2(""); setCity(""); setState(""); setZip(""); setShowAddress(false);
+      lastAutoDisplayName.current = "";
     },
     onError: (e: Error) => toast({ title: "Failed to create contact", description: e.message, variant: "destructive" }),
   });
 
   function handleSubmit() {
     mutation.mutate({
+      firstName: firstName.trim() || null,
+      lastName: lastName.trim() || null,
       displayName: displayName.trim(),
       contactType,
       primaryEmail: primaryEmail.trim() || null,
@@ -139,17 +134,32 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
       notes: notes.trim() || null,
       associationId: associationId !== "none" ? Number(associationId) : null,
       unitId: unitId !== "none" ? Number(unitId) : null,
+      mailingAddress1: address1.trim() || null,
+      mailingAddress2: address2.trim() || null,
+      mailingCity: city.trim() || null,
+      mailingState: state.trim() || null,
+      mailingPostalCode: zip.trim() || null,
     });
   }
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader><DialogTitle>New Contact</DialogTitle></DialogHeader>
         <div className="space-y-3 py-1">
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">First Name</label>
+              <Input value={firstName} onChange={e => { setFirstName(e.target.value); handleNamesChange(e.target.value, lastName); }} placeholder="Jane" data-testid="input-contact-firstname" autoFocus />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Last Name</label>
+              <Input value={lastName} onChange={e => { setLastName(e.target.value); handleNamesChange(firstName, e.target.value); }} placeholder="Smith" data-testid="input-contact-lastname" />
+            </div>
+          </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Full name *</label>
-            <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jane Smith" data-testid="input-contact-name" autoFocus />
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Display name *</label>
+            <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Jane Smith" data-testid="input-contact-name" />
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Type</label>
@@ -189,6 +199,23 @@ function CreateContactDialog({ open, onClose }: { open: boolean; onClose: () => 
                 </SelectContent>
               </Select>
             </div>
+          </div>
+          <div>
+            <Button variant="ghost" size="sm" className="h-7 px-0 text-muted-foreground hover:text-foreground text-xs" onClick={() => setShowAddress(!showAddress)}>
+              {showAddress ? <ChevronUp className="h-3 w-3 mr-1" /> : <ChevronDown className="h-3 w-3 mr-1" />}
+              Mailing Address
+            </Button>
+            {showAddress && (
+              <div className="space-y-2 mt-2 p-3 rounded-md bg-muted/30 border border-border">
+                <Input value={address1} onChange={e => setAddress1(e.target.value)} placeholder="Address line 1" className="h-8 text-xs" />
+                <Input value={address2} onChange={e => setAddress2(e.target.value)} placeholder="Address line 2" className="h-8 text-xs" />
+                <div className="grid grid-cols-3 gap-2">
+                  <Input value={city} onChange={e => setCity(e.target.value)} placeholder="City" className="h-8 text-xs col-span-1" />
+                  <Input value={state} onChange={e => setState(e.target.value)} placeholder="State" className="h-8 text-xs" />
+                  <Input value={zip} onChange={e => setZip(e.target.value)} placeholder="ZIP" className="h-8 text-xs" />
+                </div>
+              </div>
+            )}
           </div>
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1 block">Notes</label>
@@ -256,174 +283,9 @@ function AddEmailDialog({ contactId, open, onClose }: { contactId: number; open:
 }
 
 // ─── Import Wizard ────────────────────────────────────────────────────────────
-const SYSTEM_FIELDS: { key: string; label: string }[] = [
-  { key: "displayName", label: "Display Name *" },
-  { key: "firstName", label: "First Name" },
-  { key: "lastName", label: "Last Name" },
-  { key: "primaryEmail", label: "Primary Email" },
-  { key: "secondaryEmail", label: "Secondary Email" },
-  { key: "primaryPhone", label: "Primary Phone" },
-  { key: "secondaryPhone", label: "Secondary Phone" },
-  { key: "contactType", label: "Contact Type" },
-  { key: "notes", label: "Notes" },
-];
 
-function ImportWizardDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { toast } = useToast();
-  const fileRef = useRef<HTMLInputElement>(null);
-  const [step, setStep] = useState(1);
-  const [filename, setFilename] = useState("");
-  const [headers, setHeaders] = useState<string[]>([]);
-  const [rows, setRows] = useState<Record<string, string>[]>([]);
-  const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [mode, setMode] = useState<"create" | "upsert">("upsert");
-  const [preview, setPreview] = useState<any>(null);
 
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setFilename(file.name);
-    const reader = new FileReader();
-    reader.onload = evt => {
-      const { headers, rows } = parseCSV(evt.target?.result as string);
-      setHeaders(headers);
-      setRows(rows);
-      setMapping(autoDetectMapping(headers));
-      setStep(2);
-    };
-    reader.readAsText(file);
-  };
 
-  const previewMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/contacts/import/preview", { rows, mapping }).then(r => r.json()),
-    onSuccess: (data) => { setPreview(data); setStep(3); },
-    onError: (e: Error) => toast({ title: "Preview failed", description: e.message, variant: "destructive" }),
-  });
-
-  const executeMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/contacts/import/execute", { rows, mapping, mode, filename }).then(r => r.json()),
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
-      toast({ title: `Import complete: ${data.imported} created, ${data.updated} updated, ${data.skipped} skipped` });
-      onClose();
-      reset();
-    },
-    onError: (e: Error) => toast({ title: "Import failed", description: e.message, variant: "destructive" }),
-  });
-
-  const reset = () => { setStep(1); setFilename(""); setHeaders([]); setRows([]); setMapping({}); setPreview(null); if (fileRef.current) fileRef.current.value = ""; };
-
-  return (
-    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); reset(); } }}>
-      <DialogContent className="sm:max-w-[560px] max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Upload className="h-4 w-4" />
-            Import Contacts — Step {step} of 3
-          </DialogTitle>
-        </DialogHeader>
-
-        {/* Step 1: Upload */}
-        {step === 1 && (
-          <div className="py-4">
-            <div
-              className="border-2 border-dashed border-border rounded-lg p-10 flex flex-col items-center justify-center gap-3 hover:border-primary/50 transition-colors cursor-pointer"
-              onClick={() => fileRef.current?.click()}
-              data-testid="csv-drop-zone"
-            >
-              <Upload className="h-8 w-8 text-muted-foreground/50" />
-              <p className="text-sm font-medium text-foreground">Click to select a CSV file</p>
-              <p className="text-xs text-muted-foreground">Supports: display_name, email, phone, contact_type, notes and more</p>
-            </div>
-            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} data-testid="input-csv-file" />
-          </div>
-        )}
-
-        {/* Step 2: Map columns */}
-        {step === 2 && (
-          <div className="py-2 space-y-4">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">{rows.length} rows detected in <span className="font-medium text-foreground">{filename}</span></span>
-            </div>
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Map CSV columns to fields</p>
-              {SYSTEM_FIELDS.map(f => (
-                <div key={f.key} className="grid grid-cols-2 gap-3 items-center">
-                  <label className="text-xs text-foreground">{f.label}</label>
-                  <Select value={mapping[f.key] ?? ""} onValueChange={v => setMapping(prev => ({ ...prev, [f.key]: v }))}>
-                    <SelectTrigger className="h-7 text-xs" data-testid={`mapping-${f.key}`}><SelectValue placeholder="— skip —" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">— skip —</SelectItem>
-                      {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                </div>
-              ))}
-            </div>
-            <div className="flex items-center justify-between pt-2 border-t">
-              <div className="flex items-center gap-2">
-                <Label className="text-xs">Import mode</Label>
-                <Select value={mode} onValueChange={(v: any) => setMode(v)}>
-                  <SelectTrigger className="h-7 text-xs w-40"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="create">Create new only</SelectItem>
-                    <SelectItem value="upsert">Create or update by email</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={reset}>Back</Button>
-              <Button size="sm" onClick={() => previewMutation.mutate()} disabled={previewMutation.isPending} data-testid="button-preview-import">
-                {previewMutation.isPending ? "Previewing…" : "Preview →"}
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-
-        {/* Step 3: Preview & Import */}
-        {step === 3 && preview && (
-          <div className="py-2 space-y-4">
-            <div className="grid grid-cols-3 gap-3">
-              <div className="rounded-lg border border-border p-3 text-center">
-                <p className="text-2xl font-bold text-green-600">{preview.valid.length}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Valid rows</p>
-              </div>
-              <div className="rounded-lg border border-border p-3 text-center">
-                <p className="text-2xl font-bold text-amber-500">{preview.existingMatches.length}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Will update</p>
-              </div>
-              <div className="rounded-lg border border-border p-3 text-center">
-                <p className="text-2xl font-bold text-red-500">{preview.invalid.length + preview.duplicatesInFile.length}</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Skipped/Invalid</p>
-              </div>
-            </div>
-            {(preview.invalid.length > 0 || preview.duplicatesInFile.length > 0) && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/20 p-3 space-y-1">
-                <p className="text-xs font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-1">
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  Issues found
-                </p>
-                {[...preview.invalid, ...preview.duplicatesInFile].slice(0, 5).map((row: any, i: number) => (
-                  <p key={i} className="text-xs text-amber-700 dark:text-amber-400">Row {row.rowIndex + 1}: {row.error}</p>
-                ))}
-                {(preview.invalid.length + preview.duplicatesInFile.length) > 5 && (
-                  <p className="text-xs text-amber-600">…and {preview.invalid.length + preview.duplicatesInFile.length - 5} more</p>
-                )}
-              </div>
-            )}
-            <DialogFooter>
-              <Button variant="outline" size="sm" onClick={() => setStep(2)}>Back</Button>
-              <Button size="sm" onClick={() => executeMutation.mutate()} disabled={executeMutation.isPending || preview.valid.length === 0} data-testid="button-execute-import">
-                {executeMutation.isPending ? "Importing…" : `Import ${preview.valid.length} contacts`}
-              </Button>
-            </DialogFooter>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 // ─── Duplicates Dialog ────────────────────────────────────────────────────────
 function DuplicatesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
@@ -615,10 +477,18 @@ function ContactDetail({ contactId }: { contactId: number }) {
   const [addPhoneOpen, setAddPhoneOpen] = useState(false);
   const [addEmailOpen, setAddEmailOpen] = useState(false);
   const [editingName, setEditingName] = useState(false);
-  const [editName, setEditName] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editDisplayName, setEditDisplayName] = useState("");
   const [editType, setEditType] = useState("");
   const [showIssues, setShowIssues] = useState(true);
   const [showTasks, setShowTasks] = useState(true);
+  const [editingAddress, setEditingAddress] = useState(false);
+  const [editAddr1, setEditAddr1] = useState("");
+  const [editAddr2, setEditAddr2] = useState("");
+  const [editCity, setEditCity] = useState("");
+  const [editState, setEditState] = useState("");
+  const [editZip, setEditZip] = useState("");
 
   const { data: contact, isLoading } = useQuery<ContactWithDetails>({
     queryKey: ["/api/contacts", contactId],
@@ -665,6 +535,7 @@ function ContactDetail({ contactId }: { contactId: number }) {
       queryClient.invalidateQueries({ queryKey: ["/api/contacts"] });
       toast({ title: "Contact updated" });
       setEditingName(false);
+      setEditingAddress(false);
     },
     onError: (e: Error) => toast({ title: "Failed to update", description: e.message, variant: "destructive" }),
   });
@@ -682,26 +553,42 @@ function ContactDetail({ contactId }: { contactId: number }) {
 
   if (!contact) return null;
 
+  const lastAutoDisplayName = { current: "" };
+  const handleEditNamesChange = (f: string, l: string) => {
+    const auto = `${f} ${l}`.trim();
+    if (editDisplayName === lastAutoDisplayName.current) {
+      setEditDisplayName(auto);
+      lastAutoDisplayName.current = auto;
+    }
+  };
+
   return (
     <div className="flex-1 overflow-hidden flex flex-col">
       {/* Header */}
       <div className="shrink-0 px-6 pt-6 pb-4 border-b border-border">
         {editingName ? (
-          <div className="space-y-2">
-            <Input value={editName} onChange={e => setEditName(e.target.value)} className="text-lg font-semibold" data-testid="input-edit-name" autoFocus onKeyDown={e => e.key === "Enter" && updateMutation.mutate({ displayName: editName.trim(), contactType: editType })} />
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-2">
+              <Input value={editFirstName} onChange={e => { setEditFirstName(e.target.value); handleEditNamesChange(e.target.value, editLastName); }} placeholder="First Name" className="h-8 text-sm" />
+              <Input value={editLastName} onChange={e => { setEditLastName(e.target.value); handleEditNamesChange(editFirstName, e.target.value); }} placeholder="Last Name" className="h-8 text-sm" />
+            </div>
+            <Input value={editDisplayName} onChange={e => setEditDisplayName(e.target.value)} className="text-lg font-semibold h-10" data-testid="input-edit-name" autoFocus />
             <Select value={editType} onValueChange={setEditType}>
               <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-edit-type"><SelectValue /></SelectTrigger>
               <SelectContent>{CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => updateMutation.mutate({ displayName: editName.trim(), contactType: editType })} disabled={!editName.trim() || updateMutation.isPending} data-testid="button-save-name">{updateMutation.isPending ? "Saving…" : "Save"}</Button>
+              <Button size="sm" onClick={() => updateMutation.mutate({ firstName: editFirstName.trim() || null, lastName: editLastName.trim() || null, displayName: editDisplayName.trim(), contactType: editType })} disabled={!editDisplayName.trim() || updateMutation.isPending} data-testid="button-save-name">{updateMutation.isPending ? "Saving…" : "Save"}</Button>
               <Button size="sm" variant="outline" onClick={() => setEditingName(false)} data-testid="button-cancel-edit">Cancel</Button>
             </div>
           </div>
         ) : (
           <div>
-            <button className="group flex items-start gap-2 hover:opacity-80 transition-opacity text-left" onClick={() => { setEditName(contact.displayName); setEditType(contact.contactType); setEditingName(true); }} data-testid="button-edit-contact-name">
-              <h2 className="text-xl font-semibold text-foreground" data-testid="text-contact-name">{contact.displayName}</h2>
+            <button className="group flex items-start gap-2 hover:opacity-80 transition-opacity text-left" onClick={() => { setEditFirstName(contact.firstName || ""); setEditLastName(contact.lastName || ""); setEditDisplayName(contact.displayName); setEditType(contact.contactType); setEditingName(true); lastAutoDisplayName.current = contact.displayName; }} data-testid="button-edit-contact-name">
+              <div>
+                <h2 className="text-xl font-semibold text-foreground" data-testid="text-contact-name">{contact.displayName}</h2>
+                {(contact.firstName || contact.lastName) && <p className="text-xs text-muted-foreground mt-0.5">{contact.firstName} {contact.lastName}</p>}
+              </div>
             </button>
             <div className="flex items-center gap-2 mt-1.5">
               <Badge variant={contactTypeColor(contact.contactType)} className="text-xs" data-testid="badge-contact-type">{contact.contactType}</Badge>
@@ -763,18 +650,61 @@ function ContactDetail({ contactId }: { contactId: number }) {
             </div>
           </section>
 
+          <Separator />
+
+          {/* Mailing Address Section */}
+          <section>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5"><MapPin className="h-3.5 w-3.5" />Mailing Address</p>
+              {!editingAddress && (
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={() => {
+                  setEditAddr1(contact.mailingAddress1 || "");
+                  setEditAddr2(contact.mailingAddress2 || "");
+                  setEditCity(contact.mailingCity || "");
+                  setEditState(contact.mailingState || "");
+                  setEditZip(contact.mailingPostalCode || "");
+                  setEditingAddress(true);
+                }} data-testid="button-edit-address"><Pencil className="h-3 w-3 mr-0.5" />Edit</Button>
+              )}
+            </div>
+            {editingAddress ? (
+              <div className="space-y-2 mt-2 p-3 rounded-md bg-muted/30 border border-border">
+                <Input value={editAddr1} onChange={e => setEditAddr1(e.target.value)} placeholder="Address line 1" className="h-8 text-xs" />
+                <Input value={editAddr2} onChange={e => setEditAddr2(e.target.value)} placeholder="Address line 2" className="h-8 text-xs" />
+                <div className="grid grid-cols-3 gap-2">
+                  <Input value={editCity} onChange={e => setEditCity(e.target.value)} placeholder="City" className="h-8 text-xs col-span-1" />
+                  <Input value={editState} onChange={e => setEditState(e.target.value)} placeholder="State" className="h-8 text-xs" />
+                  <Input value={editZip} onChange={e => setEditZip(e.target.value)} placeholder="ZIP" className="h-8 text-xs" />
+                </div>
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" className="h-7 text-xs" onClick={() => updateMutation.mutate({ mailingAddress1: editAddr1.trim() || null, mailingAddress2: editAddr2.trim() || null, mailingCity: editCity.trim() || null, mailingState: editState.trim() || null, mailingPostalCode: editZip.trim() || null })}>Save</Button>
+                  <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditingAddress(false)}>Cancel</Button>
+                </div>
+              </div>
+            ) : contact.mailingAddress1 || contact.mailingCity ? (
+              <div className="text-sm space-y-0.5 pl-5">
+                {contact.mailingAddress1 && <p>{contact.mailingAddress1}</p>}
+                {contact.mailingAddress2 && <p>{contact.mailingAddress2}</p>}
+                <p>{[contact.mailingCity, contact.mailingState, contact.mailingPostalCode].filter(Boolean).join(", ")}</p>
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground pl-5">No mailing address.</p>
+            )}
+          </section>
+
+          <Separator />
+
           {contact.notes && (
             <>
-              <Separator />
               <section>
                 <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Notes</p>
                 <p className="text-sm text-foreground whitespace-pre-wrap" data-testid="contact-notes">{contact.notes}</p>
               </section>
+              <Separator />
             </>
           )}
 
           {/* Association & Unit */}
-          <Separator />
           <ContactAssociationSection
             associationId={contact.associationId ?? null}
             unitId={contact.unitId ?? null}
