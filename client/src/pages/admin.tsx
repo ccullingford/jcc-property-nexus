@@ -1,5 +1,6 @@
   import { ImportWizardDialog, parseCSV, autoDetectMapping } from "@/components/contact-import-dialog";
-  import { Upload, Building2, MapPin, AlertTriangle, Briefcase } from "lucide-react";
+  import { CombinedImportDialog } from "@/components/combined-import-dialog";
+  import { Upload, Building2, MapPin, AlertTriangle, Briefcase, Layers } from "lucide-react";
   import { useState, useRef } from "react";
 import { useMailboxes, useCreateMailbox, useUpdateMailbox, useDeleteMailbox } from "@/hooks/use-mailboxes";
 import { useQuery, useMutation } from "@tanstack/react-query";
@@ -53,6 +54,7 @@ type Mailbox = z.infer<typeof api.mailboxes.list.responses[200]>[0] & {
 export function Admin() {
   const { data: mailboxes, isLoading } = useMailboxes();
   const [contactImportOpen, setContactImportOpen] = useState(false);
+  const [combinedImportOpen, setCombinedImportOpen] = useState(false);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
@@ -176,46 +178,63 @@ export function Admin() {
         </TabsContent>
       
           <TabsContent value="imports" className="space-y-8">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-              <ImportCard 
-                title="Contacts" 
-                description="Import contacts from a CSV file. Supports display name, email, phone, and more."
-                icon={Users}
-                onClick={() => setContactImportOpen(true)}
-                dataTestId="button-import-contacts"
-              />
-              <GenericImportWizardDialog 
-                title="Associations"
-                fields={ASSOCIATION_FIELDS}
-                endpoint="/api/associations/import"
-                icon={Building2}
-                trigger={(open) => (
-                  <ImportCard 
-                    title="Associations" 
-                    description="Import associations from a CSV file. Fields: name, code, address, city, etc."
-                    icon={Building2}
-                    onClick={open}
-                    dataTestId="button-import-associations"
-                  />
-                )}
-              />
-              <GenericImportWizardDialog 
-                title="Units"
-                fields={UNIT_FIELDS}
-                endpoint="/api/units/import"
-                icon={MapPin}
-                trigger={(open) => (
-                  <ImportCard 
-                    title="Units" 
-                    description="Import units from a CSV file. Link them to associations by name."
-                    icon={MapPin}
-                    onClick={open}
-                    dataTestId="button-import-units"
-                  />
-                )}
-              />
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Combined</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <ImportCard 
+                  title="Combined Import"
+                  description="Import associations, units, and contacts from one CSV file. Resolves relationships automatically."
+                  icon={Layers}
+                  onClick={() => setCombinedImportOpen(true)}
+                  dataTestId="button-import-combined"
+                  highlight
+                />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">Single-entity imports</p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <ImportCard 
+                  title="Contacts" 
+                  description="Import contacts only. Supports display name, email, phone, and more."
+                  icon={Users}
+                  onClick={() => setContactImportOpen(true)}
+                  dataTestId="button-import-contacts"
+                />
+                <GenericImportWizardDialog 
+                  title="Associations"
+                  fields={ASSOCIATION_FIELDS}
+                  endpoint="/api/associations/import"
+                  icon={Building2}
+                  trigger={(open) => (
+                    <ImportCard 
+                      title="Associations" 
+                      description="Import associations only. Fields: name, code, address, city, etc."
+                      icon={Building2}
+                      onClick={open}
+                      dataTestId="button-import-associations"
+                    />
+                  )}
+                />
+                <GenericImportWizardDialog 
+                  title="Units"
+                  fields={UNIT_FIELDS}
+                  endpoint="/api/units/import"
+                  icon={MapPin}
+                  trigger={(open) => (
+                    <ImportCard 
+                      title="Units" 
+                      description="Import units only. Links to associations by name."
+                      icon={MapPin}
+                      onClick={open}
+                      dataTestId="button-import-units"
+                    />
+                  )}
+                />
+              </div>
             </div>
             <ImportWizardDialog open={contactImportOpen} onClose={() => setContactImportOpen(false)} />
+            <CombinedImportDialog open={combinedImportOpen} onClose={() => setCombinedImportOpen(false)} />
           </TabsContent>
         </Tabs>
     </div>
@@ -600,21 +619,21 @@ function TypeLabelsSection({ category, title, description }: { category: string;
   );
 }
 
-  function ImportCard({ title, description, icon: Icon, onClick, dataTestId }: { title: string; description: string; icon: any; onClick: () => void; dataTestId: string }) {
+  function ImportCard({ title, description, icon: Icon, onClick, dataTestId, highlight }: { title: string; description: string; icon: any; onClick: () => void; dataTestId: string; highlight?: boolean }) {
     return (
       <div 
-        className="bg-card hover:bg-muted/50 border border-border rounded-xl p-6 transition-colors cursor-pointer group flex flex-col items-center text-center space-y-4 shadow-sm"
+        className={`hover:bg-muted/50 border rounded-xl p-6 transition-colors cursor-pointer group flex flex-col items-center text-center space-y-4 shadow-sm ${highlight ? "bg-primary/5 border-primary/30" : "bg-card border-border"}`}
         onClick={onClick}
         data-testid={dataTestId}
       >
-        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+        <div className={`h-12 w-12 rounded-full flex items-center justify-center group-hover:scale-110 transition-transform ${highlight ? "bg-primary/15 text-primary" : "bg-primary/10 text-primary"}`}>
           <Icon className="h-6 w-6" />
         </div>
         <div>
           <h3 className="text-lg font-bold">{title}</h3>
           <p className="text-sm text-muted-foreground mt-1">{description}</p>
         </div>
-        <Button variant="outline" className="w-full mt-auto">Select File</Button>
+        <Button variant={highlight ? "default" : "outline"} size="sm" className="w-full mt-auto">Select File</Button>
       </div>
     );
   }

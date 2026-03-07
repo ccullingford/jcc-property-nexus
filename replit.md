@@ -31,6 +31,7 @@ server/
     contactTimelineService.ts # getContactTimeline(contactId) aggregating threads, notes, tasks
     contactService.ts         # createContact, updateContact, addContactPhone/Email, linkThreadContact
     contactImportService.ts   # previewImport(rows, mapping) + executeImport(rows, mapping, mode, userId) — CSV bulk import with field mapping, validation, upsert
+    combinedImportService.ts  # previewCombined(rows, mapping) + executeCombined(rows, mapping) — multi-entity import resolving assoc→unit→contact→links in one CSV
     contactMergeService.ts    # findDuplicates() by normalized email + cross-contact_emails check; mergeContacts(sourceId, targetId, userId) — re-links threads/emails/phones/issues/tasks/calls, logs merge
     issueService.ts           # createIssue (sets createdByUserId, logs activity), updateIssue, getIssueWithDetails
     issueLinkService.ts       # linkIssueThread, unlinkIssueThread, linkIssueTask, unlinkIssueTask; getIssueThreads, getIssueTasks

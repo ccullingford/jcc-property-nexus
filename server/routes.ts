@@ -1,4 +1,5 @@
 import { importAssociations, importUnits } from "./services/associationImportService";
+import { previewCombined, executeCombined } from "./services/combinedImportService";
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
@@ -626,6 +627,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!Array.isArray(rows) || !mapping) return res.status(400).json({ message: "rows and mapping required" });
       const userId = req.session.userId!;
       const result = await executeImport(rows, mapping, mode ?? "upsert", userId, filename ?? "import.csv");
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Import failed" });
+    }
+  });
+
+  // ─── Combined Import ──────────────────────────────────────────────────────
+  app.post("/api/import/combined/preview", requireAuth, async (req, res) => {
+    try {
+      const { rows, mapping } = req.body;
+      if (!Array.isArray(rows) || !mapping) return res.status(400).json({ message: "rows and mapping required" });
+      const result = previewCombined(rows, mapping);
+      res.json(result);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Preview failed" });
+    }
+  });
+
+  app.post("/api/import/combined/execute", requireAuth, async (req, res) => {
+    try {
+      const { rows, mapping } = req.body;
+      if (!Array.isArray(rows) || !mapping) return res.status(400).json({ message: "rows and mapping required" });
+      const result = await executeCombined(rows, mapping);
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ message: err.message || "Import failed" });
