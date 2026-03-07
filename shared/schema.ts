@@ -433,6 +433,47 @@ export const insertWhatsNewReadSchema = createInsertSchema(whatsNewReads).omit({
 export type WhatsNewRead = typeof whatsNewReads.$inferSelect;
 
 // ============================================================
+// NOTIFICATIONS
+// ============================================================
+export const notifications = pgTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  body: text("body"),
+  entityType: text("entity_type"),
+  entityId: integer("entity_id"),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertNotificationSchema = createInsertSchema(notifications).omit({ id: true, createdAt: true });
+export type Notification = typeof notifications.$inferSelect;
+export type InsertNotification = z.infer<typeof insertNotificationSchema>;
+
+// ============================================================
+// SOLUTION LIBRARY
+// ============================================================
+export const solutionLibrary = pgTable("solution_library", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  summary: text("summary"),
+  issueType: text("issue_type"),
+  symptoms: text("symptoms"),
+  recommendedSteps: text("recommended_steps"),
+  internalNotes: text("internal_notes"),
+  responseTemplate: text("response_template"),
+  status: text("status").notNull().default("draft"),
+  ownerUserId: integer("owner_user_id").references(() => users.id),
+  lastReviewedAt: timestamp("last_reviewed_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSolutionSchema = createInsertSchema(solutionLibrary).omit({ id: true, createdAt: true, updatedAt: true });
+export type Solution = typeof solutionLibrary.$inferSelect;
+export type InsertSolution = z.infer<typeof insertSolutionSchema>;
+
+// ============================================================
 // API CONTRACT TYPES
 // ============================================================
 export type UpdateUserRequest = Partial<InsertUser>;

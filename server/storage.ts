@@ -2,6 +2,7 @@ import { db } from "./db";
 import {
   users, mailboxes, emailThreads, messages, attachments, contacts, contactPhones,
   contactEmails, associations, properties, units, issues, tasks, notes, calls, activityLog,
+  issueThreads, threadContacts,
   type User, type InsertUser,
   type Mailbox, type InsertMailbox,
   type EmailThread, type InsertEmailThread,
@@ -18,7 +19,7 @@ import {
   type ActivityLog, type InsertActivityLog,
   typeLabels, type TypeLabel, type InsertTypeLabel,
 } from "@shared/schema";
-import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull, ilike, gte, lte } from "drizzle-orm";
+import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull, ilike, gte, lte, exists } from "drizzle-orm";
 import type { TaskWithMeta } from "@shared/routes";
 
 export type ThreadWithMeta = EmailThread & {
@@ -39,6 +40,9 @@ export interface ThreadFilters {
   dateFrom?: Date;
   dateTo?: Date;
   sentOnly?: boolean;
+  hasTask?: boolean;
+  hasIssue?: boolean;
+  associationId?: number;
 }
 
 export interface GlobalSearchResults {
@@ -215,6 +219,31 @@ export class DatabaseStorage implements IStorage {
       const hasInbound = msgs.some(m => m.direction !== "outbound");
       if (filters.sentOnly && hasInbound) continue;
       if (filters.sentOnly === false && !hasInbound) continue;
+
+      if (filters.hasIssue) {
+        const linked = await db.select({ id: issueThreads.id }).from(issueThreads).where(eq(issueThreads.threadId, t.id)).limit(1);
+        if (linked.length === 0) continue;
+      }
+      if (filters.hasTask) {
+        // Tasks can link to threads via threadId directly, or via issue linked to the thread
+        const directTasks = await db.select({ id: tasks.id }).from(tasks).where(eq(tasks.threadId, t.id)).limit(1);
+        if (directTasks.length === 0) {
+          const linkedIssues = await db.select({ issueId: issueThreads.issueId }).from(issueThreads).where(eq(issueThreads.threadId, t.id));
+          if (linkedIssues.length === 0) continue;
+          const issueIds = linkedIssues.map(r => r.issueId);
+          const issueTasks2 = await db.select({ id: tasks.id }).from(tasks).where(inArray(tasks.issueId, issueIds)).limit(1);
+          if (issueTasks2.length === 0) continue;
+        }
+      }
+      if (filters.associationId) {
+        const linkedIssues = await db.select({ issueId: issueThreads.issueId }).from(issueThreads).where(eq(issueThreads.threadId, t.id));
+        if (linkedIssues.length === 0) continue;
+        const issueIds = linkedIssues.map(r => r.issueId);
+        const assocMatch = await db.select({ id: issues.id }).from(issues)
+          .where(and(inArray(issues.id, issueIds), eq(issues.associationId, filters.associationId)))
+          .limit(1);
+        if (assocMatch.length === 0) continue;
+      }
 
       enriched.push({
         ...t,

@@ -27,12 +27,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, AlertCircle, CheckSquare, Users, Building2, Loader2 } from "lucide-react";
+import { Plus, AlertCircle, CheckSquare, Users, Building2, Loader2, Mail, X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Association } from "@shared/schema";
+import type { Association, Mailbox } from "@shared/schema";
 
-type CreateType = "issue" | "task" | "contact" | "association" | null;
+type CreateType = "issue" | "task" | "contact" | "association" | "email" | null;
 
 const PRIORITIES = ["Low", "Normal", "High", "Urgent"];
 const CONTACT_TYPES = ["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Property Manager", "Other"];
@@ -71,6 +71,11 @@ export function GlobalCreateMenu() {
     enabled: open === "task",
   });
 
+  const { data: mailboxes = [] } = useQuery<Mailbox[]>({
+    queryKey: ["/api/mailboxes"],
+    enabled: open === "email",
+  });
+
   function close() { setOpen(null); }
 
   return (
@@ -90,6 +95,10 @@ export function GlobalCreateMenu() {
         <DropdownMenuContent align="end" className="w-44">
           <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">New…</DropdownMenuLabel>
           <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setOpen("email")} data-testid="create-email-menu-item">
+            <Mail className="mr-2 h-4 w-4 text-muted-foreground" />
+            Email
+          </DropdownMenuItem>
           <DropdownMenuItem onClick={() => setOpen("issue")} data-testid="create-issue-menu-item">
             <AlertCircle className="mr-2 h-4 w-4 text-muted-foreground" />
             Issue
@@ -108,6 +117,16 @@ export function GlobalCreateMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <ComposeEmailDialog
+        open={open === "email"}
+        onClose={close}
+        mailboxes={mailboxes}
+        onSent={() => {
+          toast({ title: "Email sent" });
+          close();
+        }}
+      />
 
       <CreateIssueDialog
         open={open === "issue"}
@@ -146,6 +165,184 @@ export function GlobalCreateMenu() {
         }}
       />
     </>
+  );
+}
+
+function EmailTagInput({
+  label,
+  value,
+  onChange,
+  testId,
+  placeholder,
+}: {
+  label: string;
+  value: string[];
+  onChange: (v: string[]) => void;
+  testId: string;
+  placeholder?: string;
+}) {
+  const [raw, setRaw] = useState("");
+
+  function commit() {
+    const email = raw.trim();
+    if (!email) return;
+    if (!value.includes(email)) onChange([...value, email]);
+    setRaw("");
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === "," || e.key === " ") {
+      e.preventDefault();
+      commit();
+    } else if (e.key === "Backspace" && raw === "" && value.length > 0) {
+      onChange(value.slice(0, -1));
+    }
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <Label>{label}</Label>
+      <div className="flex flex-wrap gap-1 min-h-9 rounded-md border border-input bg-background px-2 py-1 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+        {value.map((email) => (
+          <span key={email} className="flex items-center gap-0.5 bg-muted text-foreground rounded px-1.5 py-0.5 text-xs">
+            {email}
+            <button type="button" onClick={() => onChange(value.filter(e => e !== email))} className="ml-0.5 hover:text-destructive">
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        <input
+          value={raw}
+          onChange={(e) => setRaw(e.target.value)}
+          onKeyDown={onKeyDown}
+          onBlur={commit}
+          placeholder={value.length === 0 ? (placeholder ?? "Add email…") : ""}
+          className="flex-1 min-w-[120px] bg-transparent outline-none text-sm"
+          data-testid={testId}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ComposeEmailDialog({
+  open, onClose, mailboxes, onSent,
+}: {
+  open: boolean;
+  onClose: () => void;
+  mailboxes: Mailbox[];
+  onSent: () => void;
+}) {
+  const [mailboxId, setMailboxId] = useState<string>("");
+  const [to, setTo] = useState<string[]>([]);
+  const [cc, setCc] = useState<string[]>([]);
+  const [bcc, setBcc] = useState<string[]>([]);
+  const [subject, setSubject] = useState("");
+  const [body, setBody] = useState("");
+  const [showCc, setShowCc] = useState(false);
+  const [showBcc, setShowBcc] = useState(false);
+  const { toast } = useToast();
+
+  const effectiveMailboxId = mailboxId || (mailboxes[0] ? String(mailboxes[0].id) : "");
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/email/send", {
+        mailboxId: Number(effectiveMailboxId),
+        to,
+        cc: cc.length > 0 ? cc : undefined,
+        bcc: bcc.length > 0 ? bcc : undefined,
+        subject,
+        body,
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.message ?? "Failed to send");
+      }
+    },
+    onSuccess: () => {
+      setTo([]); setCc([]); setBcc([]); setSubject(""); setBody(""); setMailboxId("");
+      onSent();
+    },
+    onError: (err: Error) => {
+      toast({ title: "Failed to send email", description: err.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>New Email</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-1">
+          {mailboxes.length > 1 && (
+            <div className="space-y-1.5">
+              <Label>From</Label>
+              <Select value={effectiveMailboxId} onValueChange={setMailboxId}>
+                <SelectTrigger data-testid="select-email-from">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {mailboxes.map((m) => (
+                    <SelectItem key={m.id} value={String(m.id)}>
+                      {m.microsoftMailboxId ?? m.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <EmailTagInput label="To" value={to} onChange={setTo} testId="input-email-to" placeholder="recipient@example.com" />
+          <div className="flex gap-2 text-xs text-muted-foreground">
+            {!showCc && (
+              <button type="button" className="hover:underline" onClick={() => setShowCc(true)}>+ Cc</button>
+            )}
+            {!showBcc && (
+              <button type="button" className="hover:underline" onClick={() => setShowBcc(true)}>+ Bcc</button>
+            )}
+          </div>
+          {showCc && (
+            <EmailTagInput label="Cc" value={cc} onChange={setCc} testId="input-email-cc" />
+          )}
+          {showBcc && (
+            <EmailTagInput label="Bcc" value={bcc} onChange={setBcc} testId="input-email-bcc" />
+          )}
+          <div className="space-y-1.5">
+            <Label htmlFor="email-subject">Subject</Label>
+            <Input
+              id="email-subject"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject"
+              data-testid="input-email-subject"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="email-body">Message</Label>
+            <Textarea
+              id="email-body"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+              placeholder="Write your message…"
+              rows={6}
+              data-testid="textarea-email-body"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            onClick={() => mutation.mutate()}
+            disabled={to.length === 0 || !subject.trim() || !effectiveMailboxId || mutation.isPending}
+            data-testid="button-send-email"
+          >
+            {mutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Send
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

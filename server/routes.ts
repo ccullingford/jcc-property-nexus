@@ -419,6 +419,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (q.search && typeof q.search === "string") filters.search = q.search;
     if (q.dateFrom) filters.dateFrom = new Date(q.dateFrom as string);
     if (q.dateTo) filters.dateTo = new Date(q.dateTo as string);
+    if (q.hasTask === "true") filters.hasTask = true;
+    if (q.hasIssue === "true") filters.hasIssue = true;
+    if (q.associationId) filters.associationId = Number(q.associationId);
     res.json(await storage.getThreads(filters));
   });
 
@@ -1251,6 +1254,112 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         ? `Microsoft Graph is configured via ${method}. Sync is ready.`
         : "Microsoft Graph is not configured. Connect the Outlook integration or set MICROSOFT_TENANT_ID, MICROSOFT_CLIENT_ID, and MICROSOFT_CLIENT_SECRET.",
     });
+  });
+
+  // ── COMPOSE NEW EMAIL ─────────────────────────────────────────────────────────
+  app.post("/api/email/send", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { mailboxId, to, cc, bcc, subject, body: emailBody } = req.body;
+      if (!mailboxId || !to || !subject) return res.status(400).json({ message: "mailboxId, to, and subject are required" });
+
+      const mailbox = await storage.getMailbox(Number(mailboxId));
+      if (!mailbox?.microsoftMailboxId) return res.status(400).json({ message: "Mailbox not configured" });
+
+      const toArr: string[] = Array.isArray(to) ? to : [to];
+      const ccArr: string[] = Array.isArray(cc) ? (cc ?? []) : (cc ? [cc] : []);
+      const bccArr: string[] = Array.isArray(bcc) ? (bcc ?? []) : (bcc ? [bcc] : []);
+
+      await sendMail(mailbox.microsoftMailboxId, {
+        subject,
+        body: { contentType: "HTML", content: emailBody ?? "" },
+        toRecipients: toArr.map(addr => ({ emailAddress: { address: addr } })),
+        ccRecipients: ccArr.length > 0 ? ccArr.map(addr => ({ emailAddress: { address: addr } })) : undefined,
+        bccRecipients: bccArr.length > 0 ? bccArr.map(addr => ({ emailAddress: { address: addr } })) : undefined,
+      });
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message ?? "Failed to send email" });
+    }
+  });
+
+  // ── NOTIFICATIONS ──────────────────────────────────────────────────────────────
+  app.get("/api/notifications", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const { db: dbConn } = await import("./db");
+    const { notifications } = await import("@shared/schema");
+    const { eq, desc } = await import("drizzle-orm");
+    const rows = await dbConn.select().from(notifications).where(eq(notifications.userId, userId)).orderBy(desc(notifications.createdAt)).limit(50);
+    res.json(rows);
+  });
+
+  app.get("/api/notifications/unread-count", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const { db: dbConn } = await import("./db");
+    const { notifications } = await import("@shared/schema");
+    const { eq, and } = await import("drizzle-orm");
+    const rows = await dbConn.select({ id: notifications.id }).from(notifications).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    res.json({ count: rows.length });
+  });
+
+  app.post("/api/notifications/:id/read", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const id = Number(req.params.id as string);
+    const { db: dbConn } = await import("./db");
+    const { notifications } = await import("@shared/schema");
+    const { eq, and } = await import("drizzle-orm");
+    await dbConn.update(notifications).set({ isRead: true }).where(and(eq(notifications.id, id), eq(notifications.userId, userId)));
+    res.json({ ok: true });
+  });
+
+  app.post("/api/notifications/mark-all-read", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const { db: dbConn } = await import("./db");
+    const { notifications } = await import("@shared/schema");
+    const { eq, and } = await import("drizzle-orm");
+    await dbConn.update(notifications).set({ isRead: true }).where(and(eq(notifications.userId, userId), eq(notifications.isRead, false)));
+    res.json({ ok: true });
+  });
+
+  // ── SOLUTION LIBRARY ───────────────────────────────────────────────────────────
+  app.get("/api/solutions", requireAuth, async (req: Request, res: Response) => {
+    const { db: dbConn } = await import("./db");
+    const { solutionLibrary } = await import("@shared/schema");
+    const { desc, ilike } = await import("drizzle-orm");
+    const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+    const rows = q
+      ? await dbConn.select().from(solutionLibrary).where(ilike(solutionLibrary.title, `%${q}%`)).orderBy(desc(solutionLibrary.updatedAt))
+      : await dbConn.select().from(solutionLibrary).orderBy(desc(solutionLibrary.updatedAt));
+    res.json(rows);
+  });
+
+  app.post("/api/solutions", requireAuth, async (req: Request, res: Response) => {
+    const { db: dbConn } = await import("./db");
+    const { solutionLibrary, insertSolutionSchema } = await import("@shared/schema");
+    const parsed = insertSolutionSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+    const [entry] = await dbConn.insert(solutionLibrary).values({ ...parsed.data, updatedAt: new Date() }).returning();
+    res.status(201).json(entry);
+  });
+
+  app.patch("/api/solutions/:id", requireAuth, async (req: Request, res: Response) => {
+    const id = Number(req.params.id as string);
+    const { db: dbConn } = await import("./db");
+    const { solutionLibrary, insertSolutionSchema } = await import("@shared/schema");
+    const { eq } = await import("drizzle-orm");
+    const parsed = insertSolutionSchema.partial().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data" });
+    const [entry] = await dbConn.update(solutionLibrary).set({ ...parsed.data, updatedAt: new Date() }).where(eq(solutionLibrary.id, id)).returning();
+    if (!entry) return res.status(404).json({ message: "Not found" });
+    res.json(entry);
+  });
+
+  app.delete("/api/solutions/:id", requireAuth, async (req: Request, res: Response) => {
+    const id = Number(req.params.id as string);
+    const { db: dbConn } = await import("./db");
+    const { solutionLibrary } = await import("@shared/schema");
+    const { eq } = await import("drizzle-orm");
+    await dbConn.delete(solutionLibrary).where(eq(solutionLibrary.id, id));
+    res.json({ ok: true });
   });
 
   // ── WHAT'S NEW ────────────────────────────────────────────────────────────────

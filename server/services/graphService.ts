@@ -299,6 +299,7 @@ export interface SendMailPayload {
   body: { contentType: "HTML" | "Text"; content: string };
   toRecipients: Array<{ emailAddress: { address: string; name?: string } }>;
   ccRecipients?: Array<{ emailAddress: { address: string; name?: string } }>;
+  bccRecipients?: Array<{ emailAddress: { address: string; name?: string } }>;
   replyTo?: Array<{ emailAddress: { address: string; name?: string } }>;
   conversationId?: string;
 }

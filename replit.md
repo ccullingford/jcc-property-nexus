@@ -46,8 +46,8 @@ client/src/
     thread-sidebar.tsx  # Thread context panel: contact, ownership, status, tasks, notes, activity, issues; auto-derives Property Context from linked contacts/issues associationId
   pages/
     login.tsx     # Microsoft OAuth login page
-    admin.tsx     # Mailbox management
-    inbox.tsx     # Three-pane inbox: thread list (search + filter panel) | message view (reply/compose, unknown contact banner with Create/Link Existing/Ignore) | thread sidebar; auto-refreshes every 60s
+    admin.tsx     # Mailbox management + Issue/Task Types + Imports + Solution Library (new tab)
+    inbox.tsx     # Three-pane inbox: thread list (search + filter panel) | message view (reply/compose, unknown contact banner with Create/Link Existing/Ignore) | thread sidebar; auto-refreshes every 60s; Next Thread button; long thread message collapsing (VISIBLE_COUNT=2); has-issue/has-task filters
     tasks.tsx     # Task dashboard with My/Team/Overdue tabs + Create/Edit Task dialogs
     contacts.tsx  # Two-panel contacts: filter bar (type, has threads, has issues, association) + Import (CSV wizard) + Duplicates review | detail with emails/phones/linked issues/tasks/timeline + editable Association/Unit section
     issues.tsx    # Two-panel issues: list with status/priority/association filters | detail with tabs (Overview/Threads/Tasks/Notes/Timeline) + editable Association/Unit section
@@ -80,6 +80,8 @@ client/src/
 - **calls** — id, phone_number, contact_id, user_id, started_at, ended_at, direction, notes, issue_id
 - **activity_log** — id, entity_type, entity_id, action, user_id, metadata, created_at
 - **type_labels** — id, category (issue_type|task_type), name, is_active (default true), sort_order (default 0), created_at; seeded with defaults on startup
+- **notifications** — id, user_id, title, body, entity_type, entity_id, is_read (default false), created_at
+- **solution_library** — id, title, summary, issue_type, symptoms, recommended_steps, internal_notes, response_template, status (draft|approved), owner_user_id, last_reviewed_at, created_at, updated_at
 
 ## UI Layout
 3-panel workspace: **Sidebar** | **Main Workspace** | **Context Panel** (right, 288px, appears at lg breakpoint)

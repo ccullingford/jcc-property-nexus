@@ -41,6 +41,8 @@ interface InboxFilters {
   hasAttachments: boolean;
   assignedUserId: string;
   view: "inbox" | "sent";
+  hasTask: boolean;
+  hasIssue: boolean;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -498,10 +500,14 @@ function MessageCard({
   message,
   onReply,
   onReplyAll,
+  highlight,
+  dimmed,
 }: {
   message: MessageWithAttachments;
   onReply: () => void;
   onReplyAll: () => void;
+  highlight?: boolean;
+  dimmed?: boolean;
 }) {
   const [showHtml, setShowHtml] = useState(false);
   const bodyContent = message.bodyHtml || message.bodyText || message.bodyPreview;
@@ -510,7 +516,7 @@ function MessageCard({
 
   return (
     <div
-      className={`border border-border rounded-lg bg-card ${isOutbound ? "border-l-2 border-l-primary/30" : ""}`}
+      className={`border border-border rounded-lg bg-card transition-opacity ${isOutbound ? "border-l-2 border-l-primary/30" : ""} ${highlight ? "border-l-2 border-l-primary ring-1 ring-primary/20" : ""} ${dimmed ? "opacity-70" : ""}`}
       data-testid={`message-card-${message.id}`}
     >
       {/* Header */}
@@ -656,16 +662,33 @@ function MessageCard({
 }
 
 // ─── Thread detail view ───────────────────────────────────────────────────────
-function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; currentUser: User }) {
+const VISIBLE_COUNT = 2;
+
+function ThreadDetail({
+  thread,
+  currentUser,
+  threads,
+  onSelectThread,
+}: {
+  thread: ThreadWithMeta;
+  currentUser: User;
+  threads: ThreadWithMeta[];
+  onSelectThread: (id: number) => void;
+}) {
   const [replyState, setReplyState] = useState<{ message: MessageWithAttachments; replyAll: boolean } | null>(null);
   const [ignoredContact, setIgnoredContact] = useState(false);
+  const [showOlder, setShowOlder] = useState(false);
 
   const { data: messages, isLoading, refetch } = useQuery<MessageWithAttachments[]>({
     queryKey: ["/api/threads", thread.id, "messages"],
     staleTime: 30_000,
   });
 
+  // Sort newest first — show newest VISIBLE_COUNT expanded by default
   const sortedMessages = messages ? [...messages].sort((a, b) => new Date(b.receivedAt).getTime() - new Date(a.receivedAt).getTime()) : [];
+  const newestMessages = sortedMessages.slice(0, VISIBLE_COUNT);
+  const olderMessages = sortedMessages.slice(VISIBLE_COUNT);
+  const hasOlder = olderMessages.length > 0;
 
   const latestInbound = sortedMessages.find(m => m.direction !== "outbound") || null;
 
@@ -673,19 +696,57 @@ function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; current
     setReplyState({ message, replyAll });
   }, []);
 
+  // Next thread navigation
+  const currentIndex = threads.findIndex(t => t.id === thread.id);
+  const openThreads = threads.filter(t => t.status === "Open");
+  const currentOpenIndex = openThreads.findIndex(t => t.id === thread.id);
+  const nextOpenThread = openThreads[currentOpenIndex + 1] ?? openThreads[0] ?? null;
+  const nextThread = threads[currentIndex + 1] ?? null;
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Thread header */}
       <div className="px-6 py-4 border-b border-border shrink-0 bg-card" data-testid="thread-detail-header">
-        <h2 className="font-semibold text-foreground text-base leading-tight" data-testid="thread-detail-subject">
-          {thread.subject || "(no subject)"}
-        </h2>
-        <div className="flex items-center gap-3 mt-1">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="font-semibold text-foreground text-base leading-tight flex-1 min-w-0" data-testid="thread-detail-subject">
+            {thread.subject || "(no subject)"}
+          </h2>
+          <div className="flex items-center gap-1 shrink-0">
+            {nextOpenThread && (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 px-2.5 text-xs gap-1"
+                onClick={() => onSelectThread(nextOpenThread.id)}
+                data-testid="button-next-thread"
+                title="Go to next open thread"
+              >
+                Next →
+              </Button>
+            )}
+            {!nextOpenThread && nextThread && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 px-2.5 text-xs gap-1 text-muted-foreground"
+                onClick={() => onSelectThread(nextThread.id)}
+                data-testid="button-next-thread-any"
+                title="Go to next thread"
+              >
+                Next →
+              </Button>
+            )}
+            <button onClick={() => refetch()} className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted" data-testid="button-refresh-messages">
+              <RefreshCw className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-1.5">
           <Badge variant={thread.status === "Open" ? "default" : "secondary"} className="text-xs" data-testid="thread-status-badge">
             {thread.status}
           </Badge>
           {thread.unreadCount > 0 && (
-            <span className="text-xs text-muted-foreground" data-testid="thread-unread-count">{thread.unreadCount} unread</span>
+            <span className="text-xs text-primary font-medium" data-testid="thread-unread-count">{thread.unreadCount} unread</span>
           )}
           {thread.lastMessageAt && (
             <span className="text-xs text-muted-foreground flex items-center gap-1">
@@ -693,9 +754,6 @@ function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; current
               {formatFullDate(thread.lastMessageAt)}
             </span>
           )}
-          <button onClick={() => refetch()} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 ml-auto" data-testid="button-refresh-messages">
-            <RefreshCw className="h-3 w-3" />
-          </button>
         </div>
       </div>
 
@@ -726,17 +784,46 @@ function ThreadDetail({ thread, currentUser }: { thread: ThreadWithMeta; current
                 </div>
               ) : (
                 <>
-                  <div className="flex items-center gap-2 py-2">
-                    <div className="h-px flex-1 bg-border" />
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Newest Messages</span>
-                    <div className="h-px flex-1 bg-border" />
-                  </div>
-                  {sortedMessages.map(msg => (
+                  {/* Older messages (collapsed by default) */}
+                  {hasOlder && (
+                    <div className="flex items-center gap-2" data-testid="older-messages-toggle-container">
+                      <div className="h-px flex-1 bg-border" />
+                      <button
+                        className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded border border-border bg-muted/50 transition-colors whitespace-nowrap"
+                        onClick={() => setShowOlder(v => !v)}
+                        data-testid="button-toggle-older-messages"
+                      >
+                        {showOlder ? `Hide ${olderMessages.length} older` : `Show ${olderMessages.length} older`}
+                      </button>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+
+                  {showOlder && olderMessages.map(msg => (
                     <MessageCard
                       key={msg.id}
                       message={msg}
                       onReply={() => openReply(msg, false)}
                       onReplyAll={() => openReply(msg, true)}
+                      dimmed
+                    />
+                  ))}
+
+                  {hasOlder && (
+                    <div className="flex items-center gap-2 py-1">
+                      <div className="h-px flex-1 bg-border" />
+                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Latest {newestMessages.length} messages</span>
+                      <div className="h-px flex-1 bg-border" />
+                    </div>
+                  )}
+
+                  {newestMessages.map((msg, i) => (
+                    <MessageCard
+                      key={msg.id}
+                      message={msg}
+                      onReply={() => openReply(msg, false)}
+                      onReplyAll={() => openReply(msg, true)}
+                      highlight={i === 0 && !msg.isRead}
                     />
                   ))}
                 </>
@@ -812,6 +899,8 @@ function FilterPanel({
     filters.unreadOnly,
     filters.hasAttachments,
     filters.assignedUserId !== "all",
+    filters.hasTask,
+    filters.hasIssue,
   ].filter(Boolean).length;
 
   return (
@@ -848,7 +937,7 @@ function FilterPanel({
           </Select>
         </div>
       </div>
-      <div className="flex items-center gap-4">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">
         <div className="flex items-center gap-2">
           <Switch id="unread-only" checked={filters.unreadOnly} onCheckedChange={v => onChange({ unreadOnly: v })} data-testid="filter-unread-only" />
           <Label htmlFor="unread-only" className="text-xs cursor-pointer">Unread only</Label>
@@ -857,10 +946,18 @@ function FilterPanel({
           <Switch id="has-attachments" checked={filters.hasAttachments} onCheckedChange={v => onChange({ hasAttachments: v })} data-testid="filter-has-attachments" />
           <Label htmlFor="has-attachments" className="text-xs cursor-pointer">Has attachments</Label>
         </div>
+        <div className="flex items-center gap-2">
+          <Switch id="has-issue" checked={filters.hasIssue} onCheckedChange={v => onChange({ hasIssue: v })} data-testid="filter-has-issue" />
+          <Label htmlFor="has-issue" className="text-xs cursor-pointer">Has issue</Label>
+        </div>
+        <div className="flex items-center gap-2">
+          <Switch id="has-task" checked={filters.hasTask} onCheckedChange={v => onChange({ hasTask: v })} data-testid="filter-has-task" />
+          <Label htmlFor="has-task" className="text-xs cursor-pointer">Has task</Label>
+        </div>
         {activeCount > 0 && (
           <button
             className="text-xs text-primary hover:underline ml-auto"
-            onClick={() => onChange({ status: "all", unreadOnly: false, hasAttachments: false, assignedUserId: "all" })}
+            onClick={() => onChange({ status: "all", unreadOnly: false, hasAttachments: false, assignedUserId: "all", hasTask: false, hasIssue: false })}
             data-testid="button-clear-filters"
           >
             Clear filters ({activeCount})
@@ -884,6 +981,8 @@ export function InboxPage() {
     hasAttachments: false,
     assignedUserId: "all",
     view: "inbox",
+    hasTask: false,
+    hasIssue: false,
   });
 
   const debouncedSearch = useDebounce(searchInput, 350);
@@ -911,6 +1010,8 @@ export function InboxPage() {
     if (filters.hasAttachments) params.set("hasAttachments", "true");
     if (filters.assignedUserId !== "all") params.set("assignedUserId", filters.assignedUserId);
     params.set("sentOnly", filters.view === "sent" ? "true" : "false");
+    if (filters.hasTask) params.set("hasTask", "true");
+    if (filters.hasIssue) params.set("hasIssue", "true");
     return `/api/threads?${params.toString()}`;
   };
 
@@ -933,6 +1034,8 @@ export function InboxPage() {
     filters.unreadOnly,
     filters.hasAttachments,
     filters.assignedUserId !== "all",
+    filters.hasTask,
+    filters.hasIssue,
   ].filter(Boolean).length;
 
   return (
@@ -1086,7 +1189,12 @@ export function InboxPage() {
         {/* ── Thread detail ────────────────────────────────────── */}
         <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="thread-detail-panel">
           {selectedThread && currentUser ? (
-            <ThreadDetail thread={selectedThread} currentUser={currentUser} />
+            <ThreadDetail
+              thread={selectedThread}
+              currentUser={currentUser}
+              threads={threads ?? []}
+              onSelectThread={(id) => setSelectedThreadId(id)}
+            />
           ) : selectedThread ? (
             <div className="flex flex-col h-full min-h-0">
               <div className="px-6 py-4 border-b border-border shrink-0 bg-card">

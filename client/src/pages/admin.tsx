@@ -21,7 +21,7 @@ import { Plus, Edit2, Trash2, Mail, CheckCircle2, XCircle, Server, User, Clock, 
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { formatDistanceToNow } from "date-fns";
-import type { TypeLabel } from "@shared/schema";
+import type { TypeLabel, Solution } from "@shared/schema";
 
 type Mailbox = z.infer<typeof api.mailboxes.list.responses[200]>[0] & {
   syncHistoryDays?: number;
@@ -76,6 +76,10 @@ export function Admin() {
             <TabsTrigger value="imports" className="gap-2">
               <Upload className="h-4 w-4" />
               Imports
+            </TabsTrigger>
+            <TabsTrigger value="solutions" className="gap-2">
+              <Briefcase className="h-4 w-4" />
+              Solution Library
             </TabsTrigger>
           </TabsList>
         </div>
@@ -236,8 +240,292 @@ export function Admin() {
             <ImportWizardDialog open={contactImportOpen} onClose={() => setContactImportOpen(false)} />
             <CombinedImportDialog open={combinedImportOpen} onClose={() => setCombinedImportOpen(false)} />
           </TabsContent>
+
+          <TabsContent value="solutions" className="space-y-4">
+            <SolutionLibraryTab />
+          </TabsContent>
         </Tabs>
     </div>
+  );
+}
+
+// ─── Solution Library ─────────────────────────────────────────────────────────
+
+function SolutionLibraryTab() {
+  const { toast } = useToast();
+  const [search, setSearch] = useState("");
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [editing, setEditing] = useState<Solution | null>(null);
+
+  const { data: solutions = [], isLoading } = useQuery<Solution[]>({
+    queryKey: ["/api/solutions", search],
+    queryFn: async () => {
+      const url = search ? `/api/solutions?q=${encodeURIComponent(search)}` : "/api/solutions";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/solutions/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/solutions"] });
+      toast({ title: "Solution deleted" });
+    },
+    onError: () => toast({ title: "Failed to delete", variant: "destructive" }),
+  });
+
+  function openCreate() { setEditing(null); setDialogOpen(true); }
+  function openEdit(s: Solution) { setEditing(s); setDialogOpen(true); }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1 max-w-sm">
+          <Tag className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search solutions…"
+            className="pl-8"
+            data-testid="input-solution-search"
+          />
+        </div>
+        <Button onClick={openCreate} className="gap-2" data-testid="button-create-solution">
+          <Plus className="h-4 w-4" />
+          New Solution
+        </Button>
+      </div>
+
+      <div className="bg-card rounded-xl border border-border shadow-sm overflow-hidden">
+        <Table>
+          <TableHeader className="bg-muted/50">
+            <TableRow>
+              <TableHead>Title</TableHead>
+              <TableHead>Issue Type</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Last Reviewed</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {isLoading ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">Loading…</TableCell>
+              </TableRow>
+            ) : solutions.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={5} className="h-32 text-center">
+                  <div className="flex flex-col items-center text-muted-foreground gap-1">
+                    <Briefcase className="h-8 w-8 mb-1 opacity-40" />
+                    <p>{search ? "No solutions match your search." : "No solutions yet. Create one to get started."}</p>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ) : (
+              solutions.map(sol => (
+                <TableRow key={sol.id} data-testid={`solution-row-${sol.id}`}>
+                  <TableCell>
+                    <p className="font-medium text-sm">{sol.title}</p>
+                    {sol.summary && <p className="text-xs text-muted-foreground line-clamp-1">{sol.summary}</p>}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{sol.issueType ?? "—"}</TableCell>
+                  <TableCell>
+                    <Badge variant={sol.status === "approved" ? "default" : "secondary"} className="text-xs">
+                      {sol.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {sol.lastReviewedAt ? new Date(sol.lastReviewedAt).toLocaleDateString() : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => openEdit(sol)} data-testid={`button-edit-solution-${sol.id}`}>
+                        <Edit2 className="h-3.5 w-3.5" />
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-destructive hover:text-destructive" data-testid={`button-delete-solution-${sol.id}`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>Delete solution?</AlertDialogTitle>
+                            <AlertDialogDescription>This will permanently remove "{sol.title}" from the library.</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={() => deleteMutation.mutate(sol.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </div>
+
+      <SolutionDialog
+        open={dialogOpen}
+        onClose={() => { setDialogOpen(false); setEditing(null); }}
+        editing={editing}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/solutions"] });
+          setDialogOpen(false);
+          setEditing(null);
+        }}
+      />
+    </div>
+  );
+}
+
+function SolutionDialog({
+  open, onClose, editing, onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  editing: Solution | null;
+  onSaved: () => void;
+}) {
+  const { toast } = useToast();
+  const [title, setTitle] = useState(editing?.title ?? "");
+  const [summary, setSummary] = useState(editing?.summary ?? "");
+  const [issueType, setIssueType] = useState(editing?.issueType ?? "");
+  const [symptoms, setSymptoms] = useState(editing?.symptoms ?? "");
+  const [recommendedSteps, setRecommendedSteps] = useState(editing?.recommendedSteps ?? "");
+  const [internalNotes, setInternalNotes] = useState(editing?.internalNotes ?? "");
+  const [responseTemplate, setResponseTemplate] = useState(editing?.responseTemplate ?? "");
+  const [status, setStatus] = useState(editing?.status ?? "draft");
+
+  const reset = (s: Solution | null) => {
+    setTitle(s?.title ?? "");
+    setSummary(s?.summary ?? "");
+    setIssueType(s?.issueType ?? "");
+    setSymptoms(s?.symptoms ?? "");
+    setRecommendedSteps(s?.recommendedSteps ?? "");
+    setInternalNotes(s?.internalNotes ?? "");
+    setResponseTemplate(s?.responseTemplate ?? "");
+    setStatus(s?.status ?? "draft");
+  };
+
+  const mutation = useMutation({
+    mutationFn: async () => {
+      const body = {
+        title: title.trim(),
+        summary: summary.trim() || null,
+        issueType: issueType.trim() || null,
+        symptoms: symptoms.trim() || null,
+        recommendedSteps: recommendedSteps.trim() || null,
+        internalNotes: internalNotes.trim() || null,
+        responseTemplate: responseTemplate.trim() || null,
+        status,
+      };
+      if (editing) {
+        const res = await apiRequest("PATCH", `/api/solutions/${editing.id}`, body);
+        return res.json();
+      } else {
+        const res = await apiRequest("POST", "/api/solutions", body);
+        return res.json();
+      }
+    },
+    onSuccess: () => {
+      toast({ title: editing ? "Solution updated" : "Solution created" });
+      onSaved();
+    },
+    onError: () => toast({ title: "Failed to save", variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) { onClose(); reset(null); } }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{editing ? "Edit Solution" : "New Solution"}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2 space-y-1.5">
+              <Label>Title *</Label>
+              <Input value={title} onChange={e => setTitle(e.target.value)} placeholder="Solution title" data-testid="input-solution-title" />
+            </div>
+            <div className="col-span-2 space-y-1.5">
+              <Label>Summary</Label>
+              <Input value={summary} onChange={e => setSummary(e.target.value)} placeholder="Brief one-line summary" data-testid="input-solution-summary" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Issue Type</Label>
+              <Input value={issueType} onChange={e => setIssueType(e.target.value)} placeholder="e.g. plumbing, billing" data-testid="input-solution-issue-type" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Status</Label>
+              <Select value={status} onValueChange={setStatus}>
+                <SelectTrigger data-testid="select-solution-status">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="draft">Draft</SelectItem>
+                  <SelectItem value="approved">Approved</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label>Symptoms / When to use</Label>
+            <textarea
+              value={symptoms}
+              onChange={e => setSymptoms(e.target.value)}
+              placeholder="Describe the symptoms or situations where this solution applies…"
+              rows={3}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="textarea-solution-symptoms"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Recommended Steps</Label>
+            <textarea
+              value={recommendedSteps}
+              onChange={e => setRecommendedSteps(e.target.value)}
+              placeholder="Step-by-step resolution guide…"
+              rows={4}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="textarea-solution-steps"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Response Template</Label>
+            <textarea
+              value={responseTemplate}
+              onChange={e => setResponseTemplate(e.target.value)}
+              placeholder="Email/message template to send to residents…"
+              rows={4}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="textarea-solution-template"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Internal Notes</Label>
+            <textarea
+              value={internalNotes}
+              onChange={e => setInternalNotes(e.target.value)}
+              placeholder="Internal team notes (not shown to residents)…"
+              rows={3}
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              data-testid="textarea-solution-notes"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => mutation.mutate()} disabled={!title.trim() || mutation.isPending} data-testid="button-save-solution">
+            {mutation.isPending ? "Saving…" : editing ? "Save Changes" : "Create Solution"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

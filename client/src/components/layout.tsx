@@ -1,8 +1,8 @@
-import { ReactNode } from "react";
+import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -23,10 +23,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Sun, Moon, Sparkles } from "lucide-react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Sun, Moon, Sparkles, Bell } from "lucide-react";
 import { CommandPalette } from "@/components/command-palette";
 import { GlobalCreateMenu } from "@/components/global-create-menu";
+import { apiRequest } from "@/lib/queryClient";
+import type { Notification } from "@shared/schema";
 
 const navItems = [
   { title: "Inbox", url: "/inbox", icon: Inbox },
@@ -73,6 +81,112 @@ function AppSidebar() {
   );
 }
 
+function NotificationsBell({ userId }: { userId: number }) {
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+
+  const { data: unreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/notifications/unread-count"],
+    refetchInterval: 60 * 1000,
+    enabled: !!userId,
+  });
+
+  const { data: notifications = [], isLoading } = useQuery<Notification[]>({
+    queryKey: ["/api/notifications"],
+    enabled: open,
+  });
+
+  const markRead = useMutation({
+    mutationFn: (id: number) => apiRequest("POST", `/api/notifications/${id}/read`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+    },
+  });
+
+  const markAllRead = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/notifications/mark-all-read"),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications/unread-count"] });
+    },
+  });
+
+  const unreadCount = unreadData?.count ?? 0;
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 relative"
+          data-testid="button-notifications"
+        >
+          <Bell className="h-4 w-4" />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[10px] font-bold flex items-center justify-center" data-testid="notifications-unread-badge">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-80 p-0" data-testid="notifications-panel">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold">Notifications</h3>
+          {unreadCount > 0 && (
+            <button
+              type="button"
+              className="text-xs text-muted-foreground hover:text-foreground"
+              onClick={() => markAllRead.mutate()}
+              data-testid="button-mark-all-read"
+            >
+              Mark all read
+            </button>
+          )}
+        </div>
+        <ScrollArea className="max-h-80">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-8 text-center px-4">
+              <Bell className="h-8 w-8 text-muted-foreground mb-2" />
+              <p className="text-sm text-muted-foreground">No notifications yet</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-border">
+              {notifications.map((n) => (
+                <button
+                  key={n.id}
+                  type="button"
+                  className={`w-full text-left px-4 py-3 hover:bg-muted/50 transition-colors ${!n.isRead ? "bg-primary/5" : ""}`}
+                  onClick={() => { if (!n.isRead) markRead.mutate(n.id); }}
+                  data-testid={`notification-item-${n.id}`}
+                >
+                  <div className="flex items-start gap-2">
+                    {!n.isRead && (
+                      <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                    )}
+                    <div className={!n.isRead ? "" : "pl-4"}>
+                      <p className="text-sm font-medium leading-snug">{n.title}</p>
+                      {n.body && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{n.body}</p>}
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {new Date(n.createdAt).toLocaleDateString()}
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </ScrollArea>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function Header() {
   const { data: user } = useUser();
   const logout = useLogout();
@@ -110,6 +224,7 @@ function Header() {
       </div>
       <div className="flex items-center gap-2">
         <GlobalCreateMenu />
+        <NotificationsBell userId={user.id} />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
