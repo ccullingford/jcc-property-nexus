@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { contacts, contactEmails, contactPhones, contactImportJobs } from "@shared/schema";
-import { eq, or, inArray, and } from "drizzle-orm";
+import { eq, inArray, and } from "drizzle-orm";
 import { normalizeEmail, normalizePhone } from "./contactIdentityService";
 
 export interface FieldMapping {
@@ -17,6 +17,11 @@ export interface FieldMapping {
 
 export type ImportMode = "create" | "update" | "upsert";
 
+interface PhoneEntry {
+  phoneNumber: string;
+  label: string;
+}
+
 export interface ImportRow {
   rowIndex: number;
   raw: Record<string, string>;
@@ -24,7 +29,7 @@ export interface ImportRow {
   firstName?: string;
   lastName?: string;
   emails: string[];
-  phones: string[];
+  phoneEntries: PhoneEntry[];
   contactType?: string;
   notes?: string;
 }
@@ -58,15 +63,34 @@ export interface ImportResult {
 
 const VALID_CONTACT_TYPES = ["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Other"];
 
+const PHONE_LABEL_RE = /^(phone|office|mobile|cell|home|work|fax|other|direct|main|hoa|toll.?free)\s*:\s*/i;
+
 function splitMultiValue(raw: string): string[] {
   return raw
-    .split(/[;,|\/\n]+/)
+    .split(/[;\n]+/)
     .map(s => s.trim())
     .filter(Boolean);
 }
 
 function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
+function parsePhoneEntry(raw: string): PhoneEntry {
+  const match = raw.match(PHONE_LABEL_RE);
+  if (match) {
+    const word = match[1].trim();
+    const label = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    return { phoneNumber: raw.slice(match[0].length).trim(), label };
+  }
+  return { phoneNumber: raw, label: "Mobile" };
+}
+
+function parsePhones(raw: string): PhoneEntry[] {
+  return splitMultiValue(raw)
+    .map(parsePhoneEntry)
+    .map(e => ({ ...e, phoneNumber: normalizePhone(e.phoneNumber) ?? "" }))
+    .filter(e => e.phoneNumber);
 }
 
 function mapRow(raw: Record<string, string>, mapping: FieldMapping, rowIndex: number): ImportRow {
@@ -82,16 +106,14 @@ function mapRow(raw: Record<string, string>, mapping: FieldMapping, rowIndex: nu
     displayName = [firstName, lastName].filter(Boolean).join(" ");
   }
 
-  const emailsRaw = [get("primaryEmail"), get("secondaryEmail")].join(";");
-  const phonesRaw = [get("primaryPhone"), get("secondaryPhone")].join(";");
+  const emailsRaw = [get("primaryEmail"), get("secondaryEmail")].filter(Boolean).join(";");
+  const phonesRaw = [get("primaryPhone"), get("secondaryPhone")].filter(Boolean).join(";");
 
   const emails = splitMultiValue(emailsRaw)
     .filter(validateEmail)
     .map(normalizeEmail);
 
-  const phones = splitMultiValue(phonesRaw)
-    .map(normalizePhone)
-    .filter(Boolean) as string[];
+  const phoneEntries = parsePhones(phonesRaw);
 
   return {
     rowIndex,
@@ -100,7 +122,7 @@ function mapRow(raw: Record<string, string>, mapping: FieldMapping, rowIndex: nu
     firstName: firstName || undefined,
     lastName: lastName || undefined,
     emails,
-    phones,
+    phoneEntries,
     contactType: get("contactType") || undefined,
     notes: get("notes") || undefined,
   };
@@ -123,7 +145,7 @@ export async function previewImport(
       rowIndex: i,
       displayName: row.displayName,
       primaryEmail: row.emails[0],
-      primaryPhone: row.phones[0],
+      primaryPhone: row.phoneEntries[0]?.phoneNumber,
       contactType: row.contactType,
     };
 
@@ -211,7 +233,7 @@ export async function executeImport(
 
     try {
       const primaryEmail = row.emails[0] ?? null;
-      const primaryPhone = row.phones[0] ?? null;
+      const primaryPhone = row.phoneEntries[0]?.phoneNumber ?? null;
 
       let existingId: number | null = null;
 
@@ -243,13 +265,13 @@ export async function executeImport(
 
       if (existingId) {
         await db.update(contacts).set({ ...contactData, updatedAt: new Date() }).where(eq(contacts.id, existingId));
-        await upsertEmailsAndPhones(existingId, row.emails, row.phones);
+        await upsertEmailsAndPhones(existingId, row.emails, row.phoneEntries);
         updated++;
       } else if (mode === "update") {
         skipped++;
       } else {
         const [created] = await db.insert(contacts).values(contactData).returning({ id: contacts.id });
-        await upsertEmailsAndPhones(created.id, row.emails, row.phones);
+        await upsertEmailsAndPhones(created.id, row.emails, row.phoneEntries);
         imported++;
       }
     } catch (err: any) {
@@ -275,7 +297,7 @@ export async function executeImport(
 async function upsertEmailsAndPhones(
   contactId: number,
   emails: string[],
-  phones: string[],
+  phoneEntries: PhoneEntry[],
 ): Promise<void> {
   for (let idx = 0; idx < emails.length; idx++) {
     const email = emails[idx];
@@ -289,10 +311,9 @@ async function upsertEmailsAndPhones(
     }
   }
 
-  for (let idx = 0; idx < phones.length; idx++) {
-    const phoneNumber = phones[idx];
+  for (let idx = 0; idx < phoneEntries.length; idx++) {
+    const { phoneNumber, label } = phoneEntries[idx];
     const isPrimary = idx === 0;
-    const label = idx === 0 ? "Mobile" : "Other";
     const existing = await db.select({ id: contactPhones.id })
       .from(contactPhones)
       .where(and(eq(contactPhones.contactId, contactId), eq(contactPhones.phoneNumber, phoneNumber)))

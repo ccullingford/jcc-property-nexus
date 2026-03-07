@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { associations, units, contacts, contactEmails, contactPhones } from "@shared/schema";
-import { eq, and, or, inArray } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { normalizeEmail, normalizePhone } from "./contactIdentityService";
 import { createAssociation } from "./associationService";
 import { createUnit } from "./unitService";
@@ -66,6 +66,11 @@ export interface CombinedExecuteResult {
   };
 }
 
+interface PhoneEntry {
+  phoneNumber: string;
+  label: string;
+}
+
 const VALID_CONTACT_TYPES = [
   "Owner", "Tenant", "Vendor", "Board", "Realtor",
   "Attorney", "Property Manager", "Other",
@@ -79,6 +84,8 @@ const RELATIONSHIP_TO_CONTACT_TYPE: Record<string, string> = {
   "property manager": "Property Manager",
 };
 
+const PHONE_LABEL_RE = /^(phone|office|mobile|cell|home|work|fax|other|direct|main|hoa|toll.?free)\s*:\s*/i;
+
 function get(row: Record<string, string>, col: string | undefined): string {
   if (!col) return "";
   return (row[col] ?? "").trim();
@@ -90,9 +97,26 @@ function validateEmail(email: string): boolean {
 
 function splitMultiValue(raw: string): string[] {
   return raw
-    .split(/[;,|\/\n]+/)
+    .split(/[;\n]+/)
     .map(s => s.trim())
     .filter(Boolean);
+}
+
+function parsePhoneEntry(raw: string): PhoneEntry {
+  const match = raw.match(PHONE_LABEL_RE);
+  if (match) {
+    const word = match[1].trim();
+    const label = word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    return { phoneNumber: raw.slice(match[0].length).trim(), label };
+  }
+  return { phoneNumber: raw, label: "Mobile" };
+}
+
+function parsePhones(raw: string): PhoneEntry[] {
+  return splitMultiValue(raw)
+    .map(parsePhoneEntry)
+    .map(e => ({ ...e, phoneNumber: normalizePhone(e.phoneNumber) ?? "" }))
+    .filter(e => e.phoneNumber);
 }
 
 function resolveContactType(contactType: string, relType: string): string {
@@ -193,7 +217,7 @@ export async function executeCombined(
       const emailRaw = get(row, mapping.contactEmail);
       const phoneRaw = get(row, mapping.contactPhone);
       const emails = splitMultiValue(emailRaw).filter(validateEmail).map(normalizeEmail);
-      const phones = splitMultiValue(phoneRaw).map(normalizePhone).filter(Boolean) as string[];
+      const phoneEntries = parsePhones(phoneRaw);
 
       const firstName = get(row, mapping.contactFirstName);
       const lastName = get(row, mapping.contactLastName);
@@ -303,7 +327,7 @@ export async function executeCombined(
       // ── 3. CONTACT ───────────────────────────────────────────────────────────
       if (contactName || emails.length > 0) {
         const primaryEmail = emails[0] ?? null;
-        const primaryPhone = phones[0] ?? null;
+        const primaryPhone = phoneEntries[0]?.phoneNumber ?? null;
 
         let existingId: number | null = null;
 
@@ -323,18 +347,20 @@ export async function executeCombined(
           if (emailRows.length > 0) existingId = emailRows[0].contactId;
         }
 
-        if (!existingId && phones.length > 0) {
+        if (!existingId && phoneEntries.length > 0) {
+          const phoneNums = phoneEntries.map(p => p.phoneNumber);
           const match = await db.select({ id: contacts.id })
             .from(contacts)
-            .where(inArray(contacts.primaryPhone, phones))
+            .where(inArray(contacts.primaryPhone, phoneNums))
             .limit(1);
           if (match.length > 0) existingId = match[0].id;
         }
 
-        if (!existingId && phones.length > 0) {
+        if (!existingId && phoneEntries.length > 0) {
+          const phoneNums = phoneEntries.map(p => p.phoneNumber);
           const phoneRows = await db.select({ contactId: contactPhones.contactId })
             .from(contactPhones)
-            .where(inArray(contactPhones.phoneNumber, phones))
+            .where(inArray(contactPhones.phoneNumber, phoneNums))
             .limit(1);
           if (phoneRows.length > 0) existingId = phoneRows[0].contactId;
         }
@@ -356,18 +382,13 @@ export async function executeCombined(
           await db.update(contacts)
             .set({ ...contactData, updatedAt: new Date() })
             .where(eq(contacts.id, existingId));
-
-          await upsertEmailsAndPhones(existingId, emails, phones);
-
+          await upsertEmailsAndPhones(existingId, emails, phoneEntries);
           result.contactAction = "updated";
           result.status = "updated";
           updated++;
         } else {
           const [newContact] = await db.insert(contacts).values(contactData).returning({ id: contacts.id });
-          const newId = newContact.id;
-
-          await upsertEmailsAndPhones(newId, emails, phones);
-
+          await upsertEmailsAndPhones(newContact.id, emails, phoneEntries);
           result.contactAction = "created";
           result.status = "created";
           created++;
@@ -397,7 +418,7 @@ export async function executeCombined(
 async function upsertEmailsAndPhones(
   contactId: number,
   emails: string[],
-  phones: string[],
+  phoneEntries: PhoneEntry[],
 ): Promise<void> {
   for (let idx = 0; idx < emails.length; idx++) {
     const email = emails[idx];
@@ -411,10 +432,9 @@ async function upsertEmailsAndPhones(
     }
   }
 
-  for (let idx = 0; idx < phones.length; idx++) {
-    const phoneNumber = phones[idx];
+  for (let idx = 0; idx < phoneEntries.length; idx++) {
+    const { phoneNumber, label } = phoneEntries[idx];
     const isPrimary = idx === 0;
-    const label = idx === 0 ? "Mobile" : "Other";
     const existing = await db.select({ id: contactPhones.id })
       .from(contactPhones)
       .where(and(eq(contactPhones.contactId, contactId), eq(contactPhones.phoneNumber, phoneNumber)))
