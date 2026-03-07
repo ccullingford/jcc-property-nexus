@@ -10,12 +10,51 @@
   import { Upload, AlertTriangle } from "lucide-react";
 
   
+  function parseCSVLine(line: string): string[] {
+    const fields: string[] = [];
+    let i = 0;
+    while (i <= line.length) {
+      if (i === line.length) { fields.push(""); break; }
+      if (line[i] === '"') {
+        let field = "";
+        i++;
+        while (i < line.length) {
+          if (line[i] === '"' && line[i + 1] === '"') { field += '"'; i += 2; }
+          else if (line[i] === '"') { i++; break; }
+          else { field += line[i++]; }
+        }
+        fields.push(field.trim());
+        if (line[i] === ',') i++;
+      } else {
+        const end = line.indexOf(',', i);
+        if (end === -1) { fields.push(line.slice(i).trim()); break; }
+        fields.push(line.slice(i, end).trim());
+        i = end + 1;
+      }
+    }
+    return fields;
+  }
+
   export function parseCSV(text: string): { headers: string[]; rows: Record<string, string>[] } {
-    const lines = text.split(/\r?\n/).filter(l => l.trim());
-    if (lines.length === 0) return { headers: [], rows: [] };
-    const headers = lines[0].split(",").map(h => h.trim().replace(/^"|"$/g, ""));
-    const rows = lines.slice(1).map(line => {
-      const values = line.split(",").map(v => v.trim().replace(/^"|"$/g, ""));
+    const rawLines: string[] = [];
+    let current = "";
+    let inQuote = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (c === '"') { inQuote = !inQuote; current += c; }
+      else if ((c === '\n' || (c === '\r' && text[i + 1] === '\n')) && !inQuote) {
+        if (c === '\r') i++;
+        rawLines.push(current);
+        current = "";
+      } else { current += c; }
+    }
+    if (current.trim()) rawLines.push(current);
+
+    const nonEmpty = rawLines.filter(l => l.trim());
+    if (nonEmpty.length === 0) return { headers: [], rows: [] };
+    const headers = parseCSVLine(nonEmpty[0]);
+    const rows = nonEmpty.slice(1).map(line => {
+      const values = parseCSVLine(line);
       const row: Record<string, string> = {};
       headers.forEach((h, i) => { row[h] = values[i] ?? ""; });
       return row;

@@ -41,31 +41,39 @@ const GROUP_ICONS: Record<string, any> = {
 
 function autoDetectCombinedMapping(headers: string[]): Record<string, string> {
   const lc = headers.map(h => h.toLowerCase().replace(/[\s_-]/g, ""));
-  const find = (...variants: string[]): string => {
-    const idx = lc.findIndex(h => variants.some(v => h === v || h.includes(v.replace(/[\s_-]/g, ""))));
+
+  const byExact = (variant: string): string => {
+    const v = variant.replace(/[\s_-]/g, "");
+    const idx = lc.findIndex(h => h === v);
     return idx >= 0 ? headers[idx] : "";
   };
-  const findExact = (...variants: string[]): string => {
-    const idx = lc.findIndex(h => variants.some(v => h === v.replace(/[\s_-]/g, "")));
+  const bySubstr = (variant: string): string => {
+    const v = variant.replace(/[\s_-]/g, "");
+    const idx = lc.findIndex(h => h.includes(v));
     return idx >= 0 ? headers[idx] : "";
   };
+  const firstOf = (...candidates: Array<() => string>): string => {
+    for (const c of candidates) { const r = c(); if (r) return r; }
+    return "";
+  };
+
   return {
-    assocName:          findExact("property", "association", "associationname", "assocname", "communityname", "propertyname") || find("associationname", "assocname", "communityname"),
-    assocCode:          find("associationcode", "assoccode", "propertycode", "communitycode"),
-    assocAddress:       find("associationaddress", "assocaddress", "propertyaddress"),
-    assocCity:          find("associationcity", "assoccity", "propertycity"),
-    assocState:         find("associationstate", "assocstate", "propertystate"),
-    assocPostalCode:    find("associationzip", "assoczip", "propertyzip", "postalcode"),
-    unitNumber:         findExact("unit", "unitnumber", "apt", "suite") || find("unitnumber", "apt", "apartment"),
-    unitBuilding:       find("building", "bldg"),
-    unitAddress:        find("unitaddress", "unitstreet"),
-    contactDisplayName: findExact("homeowner", "owner", "contact", "displayname", "fullname") || find("displayname", "fullname", "contactname"),
-    contactFirstName:   find("firstname", "first"),
-    contactLastName:    find("lastname", "last"),
-    contactEmail:       findExact("emails", "email", "emailaddress") || find("emailaddress"),
-    contactPhone:       findExact("phonenumbers", "phones", "phone", "mobile", "cell") || find("mobile", "cell"),
-    contactType:        findExact("homeownertype", "contacttype", "type") || find("contacttype"),
-    relationshipType:   find("relationship", "relationshiptype", "role"),
+    assocName:          firstOf(() => byExact("propertyname"), () => byExact("associationname"), () => byExact("assocname"), () => byExact("communityname"), () => byExact("property"), () => bySubstr("associationname"), () => bySubstr("assocname"), () => bySubstr("communityname")),
+    assocCode:          firstOf(() => bySubstr("associationcode"), () => bySubstr("assoccode"), () => bySubstr("propertycode"), () => bySubstr("communitycode")),
+    assocAddress:       firstOf(() => byExact("propertyaddress"), () => bySubstr("associationaddress"), () => bySubstr("assocaddress")),
+    assocCity:          firstOf(() => byExact("propertycity"), () => bySubstr("associationcity"), () => bySubstr("assoccity")),
+    assocState:         firstOf(() => byExact("propertystate"), () => bySubstr("associationstate"), () => bySubstr("assocstate")),
+    assocPostalCode:    firstOf(() => byExact("propertyzip"), () => bySubstr("associationzip"), () => bySubstr("assoczip"), () => bySubstr("postalcode")),
+    unitNumber:         firstOf(() => byExact("unit"), () => byExact("unitnumber"), () => byExact("apt"), () => bySubstr("unitnumber"), () => bySubstr("apartment")),
+    unitBuilding:       firstOf(() => bySubstr("building"), () => bySubstr("bldg")),
+    unitAddress:        firstOf(() => byExact("unitaddress"), () => bySubstr("unitstreet")),
+    contactDisplayName: firstOf(() => byExact("homeowner"), () => byExact("owner"), () => byExact("displayname"), () => byExact("fullname"), () => bySubstr("displayname"), () => bySubstr("fullname"), () => bySubstr("contactname")),
+    contactFirstName:   firstOf(() => byExact("firstname"), () => bySubstr("firstname")),
+    contactLastName:    firstOf(() => byExact("lastname"), () => bySubstr("lastname")),
+    contactEmail:       firstOf(() => byExact("emails"), () => byExact("email"), () => byExact("emailaddress"), () => bySubstr("emailaddress")),
+    contactPhone:       firstOf(() => byExact("phonenumbers"), () => byExact("phones"), () => byExact("phone"), () => bySubstr("mobile"), () => bySubstr("cell")),
+    contactType:        firstOf(() => byExact("homeownertype"), () => byExact("contacttype"), () => bySubstr("contacttype")),
+    relationshipType:   firstOf(() => bySubstr("relationship"), () => bySubstr("relationshiptype"), () => bySubstr("role")),
   };
 }
 
