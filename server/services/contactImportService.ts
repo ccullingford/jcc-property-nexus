@@ -67,7 +67,7 @@ const PHONE_LABEL_RE = /^(phone|office|mobile|cell|home|work|fax|other|direct|ma
 
 function splitMultiValue(raw: string): string[] {
   return raw
-    .split(/[;\n]+/)
+    .split(/[;,\n]+/)
     .map(s => s.trim())
     .filter(Boolean);
 }
@@ -155,7 +155,7 @@ export async function previewImport(
     }
 
     const rawEmailField = mapping.primaryEmail ? (rows[i][mapping.primaryEmail] ?? "").trim() : "";
-    const invalidEmails = splitMultiValue(rawEmailField).filter(e => e && !validateEmail(e));
+    const invalidEmails = splitMultiValue(rawEmailField).filter(e => e && e.includes("@") && !validateEmail(e));
     if (invalidEmails.length > 0) {
       invalid.push({ ...preview, error: `Invalid email(s): ${invalidEmails.join(", ")}` });
       continue;
@@ -225,7 +225,7 @@ export async function executeImport(
     }
 
     const rawEmailField = mapping.primaryEmail ? (rows[i][mapping.primaryEmail] ?? "").trim() : "";
-    const invalidEmails = splitMultiValue(rawEmailField).filter(e => e && !validateEmail(e));
+    const invalidEmails = splitMultiValue(rawEmailField).filter(e => e && e.includes("@") && !validateEmail(e));
     if (invalidEmails.length > 0) {
       errors.push({ rowIndex: i, error: `Invalid email(s): ${invalidEmails.join(", ")}` });
       continue;

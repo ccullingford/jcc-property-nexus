@@ -42,25 +42,29 @@ const GROUP_ICONS: Record<string, any> = {
 function autoDetectCombinedMapping(headers: string[]): Record<string, string> {
   const lc = headers.map(h => h.toLowerCase().replace(/[\s_-]/g, ""));
   const find = (...variants: string[]): string => {
-    const idx = lc.findIndex(h => variants.some(v => h.includes(v.replace(/[\s_-]/g, ""))));
+    const idx = lc.findIndex(h => variants.some(v => h === v || h.includes(v.replace(/[\s_-]/g, ""))));
+    return idx >= 0 ? headers[idx] : "";
+  };
+  const findExact = (...variants: string[]): string => {
+    const idx = lc.findIndex(h => variants.some(v => h === v.replace(/[\s_-]/g, "")));
     return idx >= 0 ? headers[idx] : "";
   };
   return {
-    assocName:          find("associationname", "assocname", "community", "association", "propertyname"),
+    assocName:          findExact("property", "association", "associationname", "assocname", "communityname", "propertyname") || find("associationname", "assocname", "communityname"),
     assocCode:          find("associationcode", "assoccode", "propertycode", "communitycode"),
     assocAddress:       find("associationaddress", "assocaddress", "propertyaddress"),
     assocCity:          find("associationcity", "assoccity", "propertycity"),
     assocState:         find("associationstate", "assocstate", "propertystate"),
-    assocPostalCode:    find("associationzip", "assoczip", "propertyzip", "postalcode", "zip"),
-    unitNumber:         find("unitnumber", "unit", "apt", "apartment", "suite"),
+    assocPostalCode:    find("associationzip", "assoczip", "propertyzip", "postalcode"),
+    unitNumber:         findExact("unit", "unitnumber", "apt", "suite") || find("unitnumber", "apt", "apartment"),
     unitBuilding:       find("building", "bldg"),
     unitAddress:        find("unitaddress", "unitstreet"),
-    contactDisplayName: find("displayname", "fullname", "name", "contactname"),
+    contactDisplayName: findExact("homeowner", "owner", "contact", "displayname", "fullname") || find("displayname", "fullname", "contactname"),
     contactFirstName:   find("firstname", "first"),
     contactLastName:    find("lastname", "last"),
-    contactEmail:       find("email", "emailaddress"),
-    contactPhone:       find("phone", "mobile", "cell"),
-    contactType:        find("contacttype", "type", "category"),
+    contactEmail:       findExact("emails", "email", "emailaddress") || find("emailaddress"),
+    contactPhone:       findExact("phonenumbers", "phones", "phone", "mobile", "cell") || find("mobile", "cell"),
+    contactType:        findExact("homeownertype", "contacttype", "type") || find("contacttype"),
     relationshipType:   find("relationship", "relationshiptype", "role"),
   };
 }

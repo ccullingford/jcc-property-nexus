@@ -97,7 +97,7 @@ function validateEmail(email: string): boolean {
 
 function splitMultiValue(raw: string): string[] {
   return raw
-    .split(/[;\n]+/)
+    .split(/[;,\n]+/)
     .map(s => s.trim())
     .filter(Boolean);
 }
@@ -163,7 +163,9 @@ export function previewCombined(
     }
 
     for (const email of emails) {
-      if (!validateEmail(email)) rowErrors.push(`Invalid email: ${email}`);
+      if (email.includes("@") && !validateEmail(email)) {
+        rowErrors.push(`Invalid email: ${email}`);
+      }
     }
 
     if (unitNumber && !assocName) {
