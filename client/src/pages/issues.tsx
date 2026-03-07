@@ -544,21 +544,23 @@ function InlineThreadViewer({ threadId, threadSubject, onBack }: { threadId: num
             <p className="text-sm text-muted-foreground text-center py-8">No messages found.</p>
           ) : (
             sorted.map(msg => (
-              <div key={msg.id} className={`rounded-lg border p-4 ${msg.direction === "outbound" ? "border-primary/20 bg-primary/5" : "border-border bg-card"}`} data-testid={`inline-message-${msg.id}`}>
+              <div key={msg.id} className={`rounded-lg border p-4 min-w-0 overflow-hidden ${msg.direction === "outbound" ? "border-primary/20 bg-primary/5" : "border-border bg-card"}`} data-testid={`inline-message-${msg.id}`}>
                 <div className="flex items-start justify-between gap-2 mb-2">
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{msg.senderName || msg.senderEmail}</p>
-                    <p className="text-xs text-muted-foreground">{msg.senderEmail}</p>
+                    <p className="text-sm font-medium truncate">{msg.senderName || msg.senderEmail}</p>
+                    <p className="text-xs text-muted-foreground truncate">{msg.senderEmail}</p>
                   </div>
                   <div className="flex items-center gap-1.5 shrink-0">
                     {msg.direction === "outbound" && <Badge variant="secondary" className="text-xs h-5">Sent</Badge>}
-                    <span className="text-xs text-muted-foreground">{formatTime(msg.receivedAt)}</span>
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">{formatTime(msg.receivedAt)}</span>
                   </div>
                 </div>
                 {msg.bodyHtml ? (
-                  <div className="text-sm text-foreground border-t border-border/50 pt-2 mt-2 prose prose-sm max-w-none dark:prose-invert overflow-auto max-h-64" dangerouslySetInnerHTML={{ __html: msg.bodyHtml }} />
+                  <div className="border-t border-border/50 pt-2 mt-2 overflow-x-auto max-h-64 [&_*]:max-w-full [&_img]:max-w-full [&_table]:w-full [&_table]:table-fixed">
+                    <div className="text-sm text-foreground prose prose-sm max-w-none dark:prose-invert" dangerouslySetInnerHTML={{ __html: msg.bodyHtml }} />
+                  </div>
                 ) : (
-                  <p className="text-sm text-foreground border-t border-border/50 pt-2 mt-2 whitespace-pre-wrap">{msg.bodyPreview || msg.bodyText || "(no body)"}</p>
+                  <p className="text-sm text-foreground border-t border-border/50 pt-2 mt-2 whitespace-pre-wrap break-words">{msg.bodyPreview || msg.bodyText || "(no body)"}</p>
                 )}
               </div>
             ))
