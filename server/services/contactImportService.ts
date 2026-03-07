@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { contacts, contactEmails, contactPhones, contactImportJobs } from "@shared/schema";
-import { eq, or } from "drizzle-orm";
+import { eq, or, inArray, and } from "drizzle-orm";
 import { normalizeEmail, normalizePhone } from "./contactIdentityService";
 
 export interface FieldMapping {
@@ -23,10 +23,8 @@ export interface ImportRow {
   displayName: string;
   firstName?: string;
   lastName?: string;
-  primaryEmail?: string;
-  secondaryEmail?: string;
-  primaryPhone?: string;
-  secondaryPhone?: string;
+  emails: string[];
+  phones: string[];
   contactType?: string;
   notes?: string;
 }
@@ -60,6 +58,17 @@ export interface ImportResult {
 
 const VALID_CONTACT_TYPES = ["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Other"];
 
+function splitMultiValue(raw: string): string[] {
+  return raw
+    .split(/[;,|\/\n]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function validateEmail(email: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+}
+
 function mapRow(raw: Record<string, string>, mapping: FieldMapping, rowIndex: number): ImportRow {
   const get = (field: keyof FieldMapping) => {
     const col = mapping[field];
@@ -73,23 +82,28 @@ function mapRow(raw: Record<string, string>, mapping: FieldMapping, rowIndex: nu
     displayName = [firstName, lastName].filter(Boolean).join(" ");
   }
 
+  const emailsRaw = [get("primaryEmail"), get("secondaryEmail")].join(";");
+  const phonesRaw = [get("primaryPhone"), get("secondaryPhone")].join(";");
+
+  const emails = splitMultiValue(emailsRaw)
+    .filter(validateEmail)
+    .map(normalizeEmail);
+
+  const phones = splitMultiValue(phonesRaw)
+    .map(normalizePhone)
+    .filter(Boolean) as string[];
+
   return {
     rowIndex,
     raw,
     displayName,
     firstName: firstName || undefined,
     lastName: lastName || undefined,
-    primaryEmail: get("primaryEmail") || undefined,
-    secondaryEmail: get("secondaryEmail") || undefined,
-    primaryPhone: get("primaryPhone") || undefined,
-    secondaryPhone: get("secondaryPhone") || undefined,
+    emails,
+    phones,
     contactType: get("contactType") || undefined,
     notes: get("notes") || undefined,
   };
-}
-
-function validateEmail(email: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 export async function previewImport(
@@ -108,8 +122,8 @@ export async function previewImport(
     const preview: PreviewRow = {
       rowIndex: i,
       displayName: row.displayName,
-      primaryEmail: row.primaryEmail,
-      primaryPhone: row.primaryPhone,
+      primaryEmail: row.emails[0],
+      primaryPhone: row.phones[0],
       contactType: row.contactType,
     };
 
@@ -118,32 +132,46 @@ export async function previewImport(
       continue;
     }
 
-    if (row.primaryEmail && !validateEmail(row.primaryEmail)) {
-      invalid.push({ ...preview, error: `Invalid email: ${row.primaryEmail}` });
+    const rawEmailField = mapping.primaryEmail ? (rows[i][mapping.primaryEmail] ?? "").trim() : "";
+    const invalidEmails = splitMultiValue(rawEmailField).filter(e => e && !validateEmail(e));
+    if (invalidEmails.length > 0) {
+      invalid.push({ ...preview, error: `Invalid email(s): ${invalidEmails.join(", ")}` });
       continue;
     }
 
-    if (row.primaryEmail) {
-      const normalized = normalizeEmail(row.primaryEmail);
-      if (seenEmails.has(normalized)) {
-        duplicatesInFile.push({ ...preview, isDuplicateInFile: true, error: `Duplicate of row ${seenEmails.get(normalized)! + 1}` });
-        continue;
+    let isDup = false;
+    for (const email of row.emails) {
+      if (seenEmails.has(email)) {
+        duplicatesInFile.push({ ...preview, isDuplicateInFile: true, error: `Duplicate of row ${seenEmails.get(email)! + 1}` });
+        isDup = true;
+        break;
       }
-      seenEmails.set(normalized, i);
+      seenEmails.set(email, i);
+    }
+    if (isDup) continue;
 
-      // Check DB match
+    if (row.emails.length > 0) {
       const existing = await db.select({ id: contacts.id })
         .from(contacts)
-        .where(eq(contacts.primaryEmail, normalized))
+        .where(inArray(contacts.primaryEmail, row.emails))
         .limit(1);
       if (existing.length > 0) {
         existingMatches.push({ ...preview, existingContactId: existing[0].id });
         valid.push({ ...preview, existingContactId: existing[0].id });
         continue;
       }
+
+      const emailMatch = await db.select({ contactId: contactEmails.contactId })
+        .from(contactEmails)
+        .where(inArray(contactEmails.email, row.emails))
+        .limit(1);
+      if (emailMatch.length > 0) {
+        existingMatches.push({ ...preview, existingContactId: emailMatch[0].contactId });
+        valid.push({ ...preview, existingContactId: emailMatch[0].contactId });
+        continue;
+      }
     }
 
-    // Normalize contactType
     if (row.contactType && !VALID_CONTACT_TYPES.includes(row.contactType)) {
       preview.contactType = "Other";
     }
@@ -174,23 +202,33 @@ export async function executeImport(
       continue;
     }
 
-    if (row.primaryEmail && !validateEmail(row.primaryEmail)) {
-      errors.push({ rowIndex: i, error: `Invalid email: ${row.primaryEmail}` });
+    const rawEmailField = mapping.primaryEmail ? (rows[i][mapping.primaryEmail] ?? "").trim() : "";
+    const invalidEmails = splitMultiValue(rawEmailField).filter(e => e && !validateEmail(e));
+    if (invalidEmails.length > 0) {
+      errors.push({ rowIndex: i, error: `Invalid email(s): ${invalidEmails.join(", ")}` });
       continue;
     }
 
     try {
-      const normalizedEmail = row.primaryEmail ? normalizeEmail(row.primaryEmail) : null;
-      const normalizedPhone = row.primaryPhone ? normalizePhone(row.primaryPhone) : null;
+      const primaryEmail = row.emails[0] ?? null;
+      const primaryPhone = row.phones[0] ?? null;
 
-      // Find existing by email
       let existingId: number | null = null;
-      if (normalizedEmail && (mode === "update" || mode === "upsert")) {
+
+      if (row.emails.length > 0 && (mode === "update" || mode === "upsert")) {
         const match = await db.select({ id: contacts.id })
           .from(contacts)
-          .where(eq(contacts.primaryEmail, normalizedEmail))
+          .where(inArray(contacts.primaryEmail, row.emails))
           .limit(1);
         if (match.length > 0) existingId = match[0].id;
+
+        if (!existingId) {
+          const emailMatch = await db.select({ contactId: contactEmails.contactId })
+            .from(contactEmails)
+            .where(inArray(contactEmails.email, row.emails))
+            .limit(1);
+          if (emailMatch.length > 0) existingId = emailMatch[0].contactId;
+        }
       }
 
       const contactData = {
@@ -198,47 +236,20 @@ export async function executeImport(
         firstName: row.firstName ?? null,
         lastName: row.lastName ?? null,
         contactType: (row.contactType && VALID_CONTACT_TYPES.includes(row.contactType)) ? row.contactType : "Other",
-        primaryEmail: normalizedEmail,
-        primaryPhone: normalizedPhone,
+        primaryEmail,
+        primaryPhone,
         notes: row.notes ?? null,
       };
 
       if (existingId) {
-        // Update existing
         await db.update(contacts).set({ ...contactData, updatedAt: new Date() }).where(eq(contacts.id, existingId));
+        await upsertEmailsAndPhones(existingId, row.emails, row.phones);
         updated++;
-
-        if (row.secondaryEmail && validateEmail(row.secondaryEmail)) {
-          const secNorm = normalizeEmail(row.secondaryEmail);
-          const exists = await db.select({ id: contactEmails.id }).from(contactEmails)
-            .where(or(eq(contactEmails.contactId, existingId), eq(contactEmails.email, secNorm))).limit(1);
-          if (exists.length === 0) {
-            await db.insert(contactEmails).values({ contactId: existingId, email: secNorm, isPrimary: false });
-          }
-        }
       } else if (mode === "update") {
-        // Update-only mode, no match found
         skipped++;
       } else {
-        // Create
         const [created] = await db.insert(contacts).values(contactData).returning({ id: contacts.id });
-        const newId = created.id;
-
-        if (normalizedEmail) {
-          await db.insert(contactEmails).values({ contactId: newId, email: normalizedEmail, isPrimary: true });
-        }
-        if (row.secondaryEmail && validateEmail(row.secondaryEmail)) {
-          await db.insert(contactEmails).values({ contactId: newId, email: normalizeEmail(row.secondaryEmail), isPrimary: false });
-        }
-        if (normalizedPhone) {
-          await db.insert(contactPhones).values({ contactId: newId, phoneNumber: normalizedPhone, label: "Mobile", isPrimary: true });
-        }
-        if (row.secondaryPhone) {
-          const secPhone = normalizePhone(row.secondaryPhone);
-          if (secPhone) {
-            await db.insert(contactPhones).values({ contactId: newId, phoneNumber: secPhone, label: "Other", isPrimary: false });
-          }
-        }
+        await upsertEmailsAndPhones(created.id, row.emails, row.phones);
         imported++;
       }
     } catch (err: any) {
@@ -246,7 +257,6 @@ export async function executeImport(
     }
   }
 
-  // Record import job
   const [job] = await db.insert(contactImportJobs).values({
     uploadedByUserId: userId,
     filename,
@@ -260,4 +270,35 @@ export async function executeImport(
   }).returning({ id: contactImportJobs.id });
 
   return { imported, updated, skipped, errors, jobId: job.id };
+}
+
+async function upsertEmailsAndPhones(
+  contactId: number,
+  emails: string[],
+  phones: string[],
+): Promise<void> {
+  for (let idx = 0; idx < emails.length; idx++) {
+    const email = emails[idx];
+    const isPrimary = idx === 0;
+    const existing = await db.select({ id: contactEmails.id })
+      .from(contactEmails)
+      .where(and(eq(contactEmails.contactId, contactId), eq(contactEmails.email, email)))
+      .limit(1);
+    if (existing.length === 0) {
+      await db.insert(contactEmails).values({ contactId, email, isPrimary });
+    }
+  }
+
+  for (let idx = 0; idx < phones.length; idx++) {
+    const phoneNumber = phones[idx];
+    const isPrimary = idx === 0;
+    const label = idx === 0 ? "Mobile" : "Other";
+    const existing = await db.select({ id: contactPhones.id })
+      .from(contactPhones)
+      .where(and(eq(contactPhones.contactId, contactId), eq(contactPhones.phoneNumber, phoneNumber)))
+      .limit(1);
+    if (existing.length === 0) {
+      await db.insert(contactPhones).values({ contactId, phoneNumber, label, isPrimary });
+    }
+  }
 }

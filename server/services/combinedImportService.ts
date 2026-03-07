@@ -1,6 +1,6 @@
 import { db } from "../db";
 import { associations, units, contacts, contactEmails, contactPhones } from "@shared/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, or, inArray } from "drizzle-orm";
 import { normalizeEmail, normalizePhone } from "./contactIdentityService";
 import { createAssociation } from "./associationService";
 import { createUnit } from "./unitService";
@@ -88,6 +88,13 @@ function validateEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
+function splitMultiValue(raw: string): string[] {
+  return raw
+    .split(/[;,|\/\n]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
 function resolveContactType(contactType: string, relType: string): string {
   if (contactType) {
     const match = VALID_CONTACT_TYPES.find(t => t.toLowerCase() === contactType.toLowerCase());
@@ -117,20 +124,22 @@ export function previewCombined(
 
     const assocName = get(row, mapping.assocName);
     const unitNumber = get(row, mapping.unitNumber);
-    const contactEmail = get(row, mapping.contactEmail);
+    const emailRaw = get(row, mapping.contactEmail);
+    const emails = splitMultiValue(emailRaw);
+    const firstEmail = emails[0] ?? "";
     const firstName = get(row, mapping.contactFirstName);
     const lastName = get(row, mapping.contactLastName);
     let contactName = get(row, mapping.contactDisplayName);
     if (!contactName && (firstName || lastName)) contactName = [firstName, lastName].filter(Boolean).join(" ");
     const relType = get(row, mapping.relationshipType);
 
-    if (!assocName && !contactName && !contactEmail) {
+    if (!assocName && !contactName && !firstEmail) {
       errors.push({ rowIndex: i, error: "Empty row — no association, name, or email found" });
       continue;
     }
 
-    if (contactEmail && !validateEmail(contactEmail)) {
-      rowErrors.push(`Invalid email: ${contactEmail}`);
+    for (const email of emails) {
+      if (!validateEmail(email)) rowErrors.push(`Invalid email: ${email}`);
     }
 
     if (unitNumber && !assocName) {
@@ -143,12 +152,12 @@ export function previewCombined(
 
     if (assocName) seenAssocs.add(assocName.toLowerCase());
     if (assocName && unitNumber) seenUnits.add(`${assocName.toLowerCase()}::${unitNumber}`);
-    if (contactName || contactEmail) contactRows++;
+    if (contactName || firstEmail) contactRows++;
 
     if (rowErrors.length > 0) {
-      errors.push({ rowIndex: i, assocName, unitNumber, contactName, contactEmail, relationshipType: relType || undefined, error: rowErrors.join("; ") });
+      errors.push({ rowIndex: i, assocName, unitNumber, contactName, contactEmail: firstEmail, relationshipType: relType || undefined, error: rowErrors.join("; ") });
     } else {
-      valid.push({ rowIndex: i, assocName, unitNumber, contactName, contactEmail, relationshipType: relType || undefined, warnings: warnings.length ? warnings : undefined });
+      valid.push({ rowIndex: i, assocName, unitNumber, contactName, contactEmail: firstEmail, relationshipType: relType || undefined, warnings: warnings.length ? warnings : undefined });
     }
   }
 
@@ -180,8 +189,12 @@ export async function executeCombined(
       const assocName = get(row, mapping.assocName);
       const assocCode = get(row, mapping.assocCode);
       const unitNumber = get(row, mapping.unitNumber);
-      const contactEmail = get(row, mapping.contactEmail);
-      const contactPhone = get(row, mapping.contactPhone);
+
+      const emailRaw = get(row, mapping.contactEmail);
+      const phoneRaw = get(row, mapping.contactPhone);
+      const emails = splitMultiValue(emailRaw).filter(validateEmail).map(normalizeEmail);
+      const phones = splitMultiValue(phoneRaw).map(normalizePhone).filter(Boolean) as string[];
+
       const firstName = get(row, mapping.contactFirstName);
       const lastName = get(row, mapping.contactLastName);
       let contactName = get(row, mapping.contactDisplayName);
@@ -193,7 +206,7 @@ export async function executeCombined(
       result.unitNumber = unitNumber || undefined;
       result.contactName = contactName || undefined;
 
-      if (!assocName && !contactName && !contactEmail) {
+      if (!assocName && !contactName && emails.length === 0) {
         result.status = "skipped";
         results.push(result);
         skipped++;
@@ -288,33 +301,53 @@ export async function executeCombined(
       }
 
       // ── 3. CONTACT ───────────────────────────────────────────────────────────
-      if (contactName || contactEmail) {
-        const normalizedEmail = contactEmail ? normalizeEmail(contactEmail) : null;
-        const normalizedPhone = contactPhone ? normalizePhone(contactPhone) : null;
+      if (contactName || emails.length > 0) {
+        const primaryEmail = emails[0] ?? null;
+        const primaryPhone = phones[0] ?? null;
 
         let existingId: number | null = null;
 
-        if (normalizedEmail) {
+        if (emails.length > 0) {
           const match = await db.select({ id: contacts.id })
-            .from(contacts).where(eq(contacts.primaryEmail, normalizedEmail)).limit(1);
+            .from(contacts)
+            .where(inArray(contacts.primaryEmail, emails))
+            .limit(1);
           if (match.length > 0) existingId = match[0].id;
         }
 
-        if (!existingId && normalizedPhone) {
+        if (!existingId && emails.length > 0) {
+          const emailRows = await db.select({ contactId: contactEmails.contactId })
+            .from(contactEmails)
+            .where(inArray(contactEmails.email, emails))
+            .limit(1);
+          if (emailRows.length > 0) existingId = emailRows[0].contactId;
+        }
+
+        if (!existingId && phones.length > 0) {
           const match = await db.select({ id: contacts.id })
-            .from(contacts).where(eq(contacts.primaryPhone, normalizedPhone)).limit(1);
+            .from(contacts)
+            .where(inArray(contacts.primaryPhone, phones))
+            .limit(1);
           if (match.length > 0) existingId = match[0].id;
+        }
+
+        if (!existingId && phones.length > 0) {
+          const phoneRows = await db.select({ contactId: contactPhones.contactId })
+            .from(contactPhones)
+            .where(inArray(contactPhones.phoneNumber, phones))
+            .limit(1);
+          if (phoneRows.length > 0) existingId = phoneRows[0].contactId;
         }
 
         const resolvedType = resolveContactType(contactType, relType);
 
         const contactData = {
-          displayName: contactName || contactEmail!,
+          displayName: contactName || primaryEmail!,
           firstName: firstName || null,
           lastName: lastName || null,
           contactType: resolvedType,
-          primaryEmail: normalizedEmail,
-          primaryPhone: normalizedPhone,
+          primaryEmail,
+          primaryPhone,
           associationId: assocId,
           unitId: unitId,
         };
@@ -323,6 +356,9 @@ export async function executeCombined(
           await db.update(contacts)
             .set({ ...contactData, updatedAt: new Date() })
             .where(eq(contacts.id, existingId));
+
+          await upsertEmailsAndPhones(existingId, emails, phones);
+
           result.contactAction = "updated";
           result.status = "updated";
           updated++;
@@ -330,12 +366,8 @@ export async function executeCombined(
           const [newContact] = await db.insert(contacts).values(contactData).returning({ id: contacts.id });
           const newId = newContact.id;
 
-          if (normalizedEmail) {
-            await db.insert(contactEmails).values({ contactId: newId, email: normalizedEmail, isPrimary: true });
-          }
-          if (normalizedPhone) {
-            await db.insert(contactPhones).values({ contactId: newId, phoneNumber: normalizedPhone, label: "Mobile", isPrimary: true });
-          }
+          await upsertEmailsAndPhones(newId, emails, phones);
+
           result.contactAction = "created";
           result.status = "created";
           created++;
@@ -360,4 +392,35 @@ export async function executeCombined(
   }
 
   return { results, summary: { created, updated, skipped, errors } };
+}
+
+async function upsertEmailsAndPhones(
+  contactId: number,
+  emails: string[],
+  phones: string[],
+): Promise<void> {
+  for (let idx = 0; idx < emails.length; idx++) {
+    const email = emails[idx];
+    const isPrimary = idx === 0;
+    const existing = await db.select({ id: contactEmails.id })
+      .from(contactEmails)
+      .where(and(eq(contactEmails.contactId, contactId), eq(contactEmails.email, email)))
+      .limit(1);
+    if (existing.length === 0) {
+      await db.insert(contactEmails).values({ contactId, email, isPrimary });
+    }
+  }
+
+  for (let idx = 0; idx < phones.length; idx++) {
+    const phoneNumber = phones[idx];
+    const isPrimary = idx === 0;
+    const label = idx === 0 ? "Mobile" : "Other";
+    const existing = await db.select({ id: contactPhones.id })
+      .from(contactPhones)
+      .where(and(eq(contactPhones.contactId, contactId), eq(contactPhones.phoneNumber, phoneNumber)))
+      .limit(1);
+    if (existing.length === 0) {
+      await db.insert(contactPhones).values({ contactId, phoneNumber, label, isPrimary });
+    }
+  }
 }
