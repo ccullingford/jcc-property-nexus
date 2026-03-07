@@ -18,6 +18,7 @@ import { AssociationsPage } from "@/pages/associations";
 import {
   CallsPage,
 } from "@/pages/placeholders";
+import { WhatsNewPage } from "@/pages/whats-new";
 
 function ProtectedRoute({ component: Component }: { component: () => JSX.Element }) {
   const { data: user, isLoading } = useUser();
@@ -49,6 +50,7 @@ function Router() {
       <Route path="/properties"><Redirect to="/associations" /></Route>
       <Route path="/calls"><ProtectedRoute component={CallsPage} /></Route>
       <Route path="/admin"><ProtectedRoute component={Admin} /></Route>
+      <Route path="/whats-new"><ProtectedRoute component={WhatsNewPage} /></Route>
       <Route component={NotFound} />
     </Switch>
   );

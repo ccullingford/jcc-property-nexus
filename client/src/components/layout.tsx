@@ -2,6 +2,7 @@ import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/use-theme";
+import { useQuery } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
@@ -13,6 +14,7 @@ import {
   SidebarProvider,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Sun, Moon } from "lucide-react";
+import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Sun, Moon, Sparkles } from "lucide-react";
 import { CommandPalette } from "@/components/command-palette";
 import { GlobalCreateMenu } from "@/components/global-create-menu";
 
@@ -75,6 +77,20 @@ function Header() {
   const { data: user } = useUser();
   const logout = useLogout();
   const { theme, setTheme } = useTheme();
+  const [, navigate] = useLocation();
+
+  const { data: unreadData } = useQuery<{ count: number }>({
+    queryKey: ["/api/whats-new/unread-count"],
+    queryFn: async () => {
+      const res = await fetch("/api/whats-new/unread-count", { credentials: "include" });
+      if (!res.ok) throw new Error(res.statusText);
+      return res.json();
+    },
+    enabled: !!user,
+    refetchInterval: 5 * 60 * 1000,
+  });
+
+  const unreadCount = unreadData?.count ?? 0;
 
   if (!user) return null;
 
@@ -99,7 +115,7 @@ function Header() {
             <Button
               variant="ghost"
               size="icon"
-              className="rounded-full border border-border"
+              className="rounded-full border border-border relative"
               data-testid="button-user-menu"
             >
               <Avatar className="h-8 w-8">
@@ -107,6 +123,9 @@ function Header() {
                   {user.name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
+              {unreadCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary border-2 border-background" data-testid="unread-badge" />
+              )}
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent className="w-56" align="end" forceMount>
@@ -118,6 +137,17 @@ function Header() {
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => navigate("/whats-new")}
+              className="cursor-pointer"
+              data-testid="button-whats-new"
+            >
+              <Sparkles className="mr-2 h-4 w-4" />
+              <span className="flex-1">What's New</span>
+              {unreadCount > 0 && (
+                <Badge variant="default" className="h-4 px-1.5 text-xs ml-1" data-testid="unread-count-badge">{unreadCount}</Badge>
+              )}
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className="cursor-pointer"

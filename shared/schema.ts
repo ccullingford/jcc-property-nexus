@@ -405,6 +405,34 @@ export type TypeLabel = typeof typeLabels.$inferSelect;
 export type InsertTypeLabel = z.infer<typeof insertTypeLabelSchema>;
 
 // ============================================================
+// WHAT'S NEW
+// ============================================================
+export const whatsNew = pgTable("whats_new", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  type: text("type").notNull().default("feature"),
+  description: text("description").notNull(),
+  howToUse: text("how_to_use"),
+  releaseVersion: text("release_version"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertWhatsNewSchema = createInsertSchema(whatsNew).omit({ id: true, createdAt: true });
+export type WhatsNewEntry = typeof whatsNew.$inferSelect;
+export type InsertWhatsNew = z.infer<typeof insertWhatsNewSchema>;
+
+export const whatsNewReads = pgTable("whats_new_reads", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  whatsNewId: integer("whats_new_id").notNull().references(() => whatsNew.id),
+  readAt: timestamp("read_at").defaultNow().notNull(),
+});
+
+export const insertWhatsNewReadSchema = createInsertSchema(whatsNewReads).omit({ id: true, readAt: true });
+export type WhatsNewRead = typeof whatsNewReads.$inferSelect;
+
+// ============================================================
 // API CONTRACT TYPES
 // ============================================================
 export type UpdateUserRequest = Partial<InsertUser>;

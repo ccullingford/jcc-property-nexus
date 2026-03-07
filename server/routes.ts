@@ -1253,5 +1253,109 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   });
 
+  // ── WHAT'S NEW ────────────────────────────────────────────────────────────────
+  app.get("/api/whats-new", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const { db } = await import("./db");
+    const { whatsNew, whatsNewReads } = await import("@shared/schema");
+    const { eq, and, desc } = await import("drizzle-orm");
+
+    const entries = await db
+      .select()
+      .from(whatsNew)
+      .where(eq(whatsNew.isActive, true))
+      .orderBy(desc(whatsNew.createdAt));
+
+    const reads = await db
+      .select({ whatsNewId: whatsNewReads.whatsNewId })
+      .from(whatsNewReads)
+      .where(eq(whatsNewReads.userId, userId));
+
+    const readSet = new Set(reads.map(r => r.whatsNewId));
+    const result = entries.map(e => ({ ...e, isRead: readSet.has(e.id) }));
+    res.json(result);
+  });
+
+  app.get("/api/whats-new/unread-count", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const { db } = await import("./db");
+    const { whatsNew, whatsNewReads } = await import("@shared/schema");
+    const { eq, desc } = await import("drizzle-orm");
+
+    const entries = await db
+      .select({ id: whatsNew.id })
+      .from(whatsNew)
+      .where(eq(whatsNew.isActive, true));
+
+    const reads = await db
+      .select({ whatsNewId: whatsNewReads.whatsNewId })
+      .from(whatsNewReads)
+      .where(eq(whatsNewReads.userId, userId));
+
+    const readSet = new Set(reads.map(r => r.whatsNewId));
+    const count = entries.filter(e => !readSet.has(e.id)).length;
+    res.json({ count });
+  });
+
+  app.post("/api/whats-new/:id/read", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const id = Number(req.params.id as string);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid id" });
+
+    const { db } = await import("./db");
+    const { whatsNewReads } = await import("@shared/schema");
+    const { eq, and } = await import("drizzle-orm");
+
+    const existing = await db
+      .select()
+      .from(whatsNewReads)
+      .where(and(eq(whatsNewReads.userId, userId), eq(whatsNewReads.whatsNewId, id)))
+      .limit(1);
+
+    if (existing.length === 0) {
+      await db.insert(whatsNewReads).values({ userId, whatsNewId: id });
+    }
+    res.json({ ok: true });
+  });
+
+  app.post("/api/whats-new/mark-all-read", requireAuth, async (req: Request, res: Response) => {
+    const userId = (req.session as any).userId as number;
+    const { db } = await import("./db");
+    const { whatsNew, whatsNewReads } = await import("@shared/schema");
+    const { eq } = await import("drizzle-orm");
+
+    const entries = await db
+      .select({ id: whatsNew.id })
+      .from(whatsNew)
+      .where(eq(whatsNew.isActive, true));
+
+    const reads = await db
+      .select({ whatsNewId: whatsNewReads.whatsNewId })
+      .from(whatsNewReads)
+      .where(eq(whatsNewReads.userId, userId));
+
+    const readSet = new Set(reads.map(r => r.whatsNewId));
+    const unread = entries.filter(e => !readSet.has(e.id));
+
+    if (unread.length > 0) {
+      await db.insert(whatsNewReads).values(unread.map(e => ({ userId, whatsNewId: e.id })));
+    }
+    res.json({ ok: true, marked: unread.length });
+  });
+
+  app.post("/api/whats-new", requireAuth, async (req: Request, res: Response) => {
+    const user = await storage.getUser((req.session as any).userId);
+    if (!user || user.role !== "admin") return res.status(403).json({ message: "Forbidden" });
+
+    const { db } = await import("./db");
+    const { whatsNew, insertWhatsNewSchema } = await import("@shared/schema");
+
+    const parsed = insertWhatsNewSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.flatten() });
+
+    const [entry] = await db.insert(whatsNew).values(parsed.data).returning();
+    res.status(201).json(entry);
+  });
+
   return httpServer;
 }
