@@ -203,9 +203,20 @@ export function CombinedImportDialog({ open, onClose }: { open: boolean; onClose
           {/* ── STEP 2: Mapping ─────────────────────────────────────────────── */}
           {step === 2 && (
             <div className="py-2 space-y-4">
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{rows.length} rows</span> detected in {filename}. Map your CSV columns to the fields below.
-              </p>
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">{rows.length} rows</span> detected in {filename}. Map your CSV columns to the fields below.
+                </p>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs h-7 px-2"
+                  onClick={() => setMapping(autoDetectCombinedMapping(headers))}
+                  data-testid="button-reset-mapping"
+                >
+                  Reset to auto-detect
+                </Button>
+              </div>
               <div className="space-y-5">
                 {GROUPS.map(group => {
                   const Icon = GROUP_ICONS[group];
@@ -217,8 +228,13 @@ export function CombinedImportDialog({ open, onClose }: { open: boolean; onClose
                         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{group}</p>
                       </div>
                       <div className="space-y-1.5">
-                        {fields.map(f => (
-                          <div key={f.key} className="grid grid-cols-2 gap-3 items-center">
+                        {fields.map(f => {
+                          const mappedCol = mapping[f.key];
+                          const sampleVal = mappedCol
+                            ? rows.slice(0, 10).map(r => r[mappedCol]).find(v => v && v.trim())
+                            : undefined;
+                          return (
+                          <div key={f.key} className="grid grid-cols-[1fr_160px_1fr] gap-2 items-center">
                             <div>
                               <label className="text-xs text-foreground">{f.label}</label>
                               {f.hint && <p className="text-xs text-muted-foreground/70">{f.hint}</p>}
@@ -235,8 +251,12 @@ export function CombinedImportDialog({ open, onClose }: { open: boolean; onClose
                                 {headers.map(h => <SelectItem key={h} value={h}>{h}</SelectItem>)}
                               </SelectContent>
                             </Select>
+                            <p className="text-xs text-muted-foreground truncate" title={sampleVal}>
+                              {sampleVal ? <span className="italic">{sampleVal}</span> : <span className="opacity-40">—</span>}
+                            </p>
                           </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     </div>
                   );
