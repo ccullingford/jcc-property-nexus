@@ -72,6 +72,8 @@ export type InsertAssociation = z.infer<typeof insertAssociationSchema>;
 export const contacts = pgTable("contacts", {
   id: serial("id").primaryKey(),
   displayName: text("display_name").notNull(),
+  companyName: text("company_name"),
+  useCompanyName: boolean("use_company_name").default(false).notNull(),
   firstName: text("first_name"),
   lastName: text("last_name"),
   contactType: text("contact_type").notNull().default("Other"),

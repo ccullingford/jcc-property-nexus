@@ -38,6 +38,10 @@ function contactTypeColor(type: string): "default" | "secondary" | "outline" {
   return "outline";
 }
 
+function effectiveName(contact: { displayName: string; companyName?: string | null; useCompanyName?: boolean | null }): string {
+  return (contact.useCompanyName && contact.companyName) ? contact.companyName : contact.displayName;
+}
+
 function relativeTime(ts: string): string {
   const diff = Date.now() - new Date(ts).getTime();
   const mins = Math.floor(diff / 60_000);
@@ -373,7 +377,7 @@ function DuplicatesDialog({ open, onClose }: { open: boolean; onClose: () => voi
 function ContactCard({ contact }: { contact: DuplicatePair["contact"] }) {
   return (
     <div className="rounded-md border border-border bg-muted/30 p-3 space-y-1 min-w-0">
-      <p className="text-sm font-medium text-foreground truncate">{contact.displayName}</p>
+      <p className="text-sm font-medium text-foreground truncate">{effectiveName(contact)}</p>
       <Badge variant={contactTypeColor(contact.contactType)} className="text-xs h-4 px-1">{contact.contactType}</Badge>
       {contact.emailList.map((e, i) => <p key={i} className="text-xs text-muted-foreground truncate">{e}</p>)}
       {contact.primaryPhone && <p className="text-xs text-muted-foreground">{contact.primaryPhone}</p>}
@@ -480,6 +484,8 @@ function ContactDetail({ contactId }: { contactId: number }) {
   const [editFirstName, setEditFirstName] = useState("");
   const [editLastName, setEditLastName] = useState("");
   const [editDisplayName, setEditDisplayName] = useState("");
+  const [editCompanyName, setEditCompanyName] = useState("");
+  const [editUseCompanyName, setEditUseCompanyName] = useState(false);
   const [editType, setEditType] = useState("");
   const [showIssues, setShowIssues] = useState(true);
   const [showTasks, setShowTasks] = useState(true);
@@ -573,21 +579,34 @@ function ContactDetail({ contactId }: { contactId: number }) {
               <Input value={editLastName} onChange={e => { setEditLastName(e.target.value); handleEditNamesChange(editFirstName, e.target.value); }} placeholder="Last Name" className="h-8 text-sm" />
             </div>
             <Input value={editDisplayName} onChange={e => setEditDisplayName(e.target.value)} className="text-lg font-semibold h-10" data-testid="input-edit-name" autoFocus />
+            <div className="space-y-1.5">
+              <Input value={editCompanyName} onChange={e => setEditCompanyName(e.target.value)} placeholder="Company name (optional)" className="h-8 text-sm" data-testid="input-edit-company-name" />
+              {editCompanyName.trim() && (
+                <div className="flex items-center gap-2 px-1">
+                  <Switch id="use-company-name" checked={editUseCompanyName} onCheckedChange={setEditUseCompanyName} data-testid="switch-use-company-name" />
+                  <Label htmlFor="use-company-name" className="text-xs text-muted-foreground cursor-pointer">Show company name as primary</Label>
+                </div>
+              )}
+            </div>
             <Select value={editType} onValueChange={setEditType}>
               <SelectTrigger className="h-8 w-40 text-xs" data-testid="select-edit-type"><SelectValue /></SelectTrigger>
               <SelectContent>{CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
             </Select>
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => updateMutation.mutate({ firstName: editFirstName.trim() || null, lastName: editLastName.trim() || null, displayName: editDisplayName.trim(), contactType: editType })} disabled={!editDisplayName.trim() || updateMutation.isPending} data-testid="button-save-name">{updateMutation.isPending ? "Saving…" : "Save"}</Button>
+              <Button size="sm" onClick={() => updateMutation.mutate({ firstName: editFirstName.trim() || null, lastName: editLastName.trim() || null, displayName: editDisplayName.trim(), companyName: editCompanyName.trim() || null, useCompanyName: editUseCompanyName && !!editCompanyName.trim(), contactType: editType })} disabled={!editDisplayName.trim() || updateMutation.isPending} data-testid="button-save-name">{updateMutation.isPending ? "Saving…" : "Save"}</Button>
               <Button size="sm" variant="outline" onClick={() => setEditingName(false)} data-testid="button-cancel-edit">Cancel</Button>
             </div>
           </div>
         ) : (
           <div>
-            <button className="group flex items-start gap-2 hover:opacity-80 transition-opacity text-left" onClick={() => { setEditFirstName(contact.firstName || ""); setEditLastName(contact.lastName || ""); setEditDisplayName(contact.displayName); setEditType(contact.contactType); setEditingName(true); lastAutoDisplayName.current = contact.displayName; }} data-testid="button-edit-contact-name">
+            <button className="group flex items-start gap-2 hover:opacity-80 transition-opacity text-left" onClick={() => { setEditFirstName(contact.firstName || ""); setEditLastName(contact.lastName || ""); setEditDisplayName(contact.displayName); setEditCompanyName(contact.companyName || ""); setEditUseCompanyName(contact.useCompanyName ?? false); setEditType(contact.contactType); setEditingName(true); lastAutoDisplayName.current = contact.displayName; }} data-testid="button-edit-contact-name">
               <div>
-                <h2 className="text-xl font-semibold text-foreground" data-testid="text-contact-name">{contact.displayName}</h2>
-                {(contact.firstName || contact.lastName) && <p className="text-xs text-muted-foreground mt-0.5">{contact.firstName} {contact.lastName}</p>}
+                <h2 className="text-xl font-semibold text-foreground" data-testid="text-contact-name">{effectiveName(contact)}</h2>
+                {contact.useCompanyName && contact.companyName
+                  ? <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1"><Building2 className="h-3 w-3" />{contact.displayName}</p>
+                  : (contact.companyName && <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1"><Building2 className="h-3 w-3" />{contact.companyName}</p>)
+                }
+                {!contact.useCompanyName && (contact.firstName || contact.lastName) && <p className="text-xs text-muted-foreground mt-0.5">{contact.firstName} {contact.lastName}</p>}
               </div>
             </button>
             <div className="flex items-center gap-2 mt-1.5">
@@ -951,11 +970,11 @@ export function ContactsPage() {
               {contacts.map(c => (
                 <button key={c.id} className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-muted/50 transition-colors border-b border-border/30 ${selectedId === c.id ? "bg-primary/5 border-l-2 border-l-primary" : ""}`} onClick={() => setSelectedId(c.id)} data-testid={`contact-row-${c.id}`}>
                   <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <span className="text-sm font-semibold text-primary">{c.displayName?.[0]?.toUpperCase() ?? "?"}</span>
+                    <span className="text-sm font-semibold text-primary">{effectiveName(c)?.[0]?.toUpperCase() ?? "?"}</span>
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-foreground truncate" data-testid={`contact-name-${c.id}`}>{c.displayName}</span>
+                      <span className="text-sm font-medium text-foreground truncate" data-testid={`contact-name-${c.id}`}>{effectiveName(c)}</span>
                       <Badge variant={contactTypeColor(c.contactType)} className="text-xs h-4 px-1.5 shrink-0">{c.contactType}</Badge>
                     </div>
                     <p className="text-xs text-muted-foreground truncate mt-0.5" data-testid={`contact-email-${c.id}`}>

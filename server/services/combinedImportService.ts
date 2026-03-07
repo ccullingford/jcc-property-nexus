@@ -5,6 +5,36 @@ import { normalizeEmail, normalizePhone } from "./contactIdentityService";
 import { createAssociation } from "./associationService";
 import { createUnit } from "./unitService";
 
+const COMPANY_KEYWORDS = /\b(llc|inc\.?|corp\.?|ltd\.?|l\.l\.c|hoa|association|trust|group|properties|realty|investments|investment|management|services|foundation|partners|holdings|enterprises|partnership|company|co\.?)\b/i;
+
+function detectCompany(displayName: string, firstName: string, lastName: string): { companyName: string | null; resolvedDisplayName: string; useCompanyName: boolean } {
+  if (!displayName) return { companyName: null, resolvedDisplayName: displayName, useCompanyName: false };
+
+  const isCompanyByKeyword = COMPANY_KEYWORDS.test(displayName);
+
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const dnNorm = normalize(displayName);
+  const fnNorm = normalize(firstName);
+  const lnNorm = normalize(lastName);
+
+  const fnMatch = fnNorm.length >= 3 && dnNorm.includes(fnNorm);
+  const lnMatch = lnNorm.length >= 3 && dnNorm.includes(lnNorm);
+  const nameAppearsInDisplay = fnMatch || lnMatch;
+
+  const hasPersonName = (firstName || lastName).trim().length > 0;
+
+  const isCompany = isCompanyByKeyword || (hasPersonName && !nameAppearsInDisplay);
+
+  if (isCompany) {
+    const resolvedDisplayName = hasPersonName
+      ? [firstName, lastName].filter(Boolean).join(" ")
+      : displayName;
+    return { companyName: displayName, resolvedDisplayName, useCompanyName: true };
+  }
+
+  return { companyName: null, resolvedDisplayName: displayName, useCompanyName: false };
+}
+
 export interface CombinedMapping {
   assocName?: string;
   assocCode?: string;
@@ -225,6 +255,7 @@ export async function executeCombined(
       const lastName = get(row, mapping.contactLastName);
       let contactName = get(row, mapping.contactDisplayName);
       if (!contactName && (firstName || lastName)) contactName = [firstName, lastName].filter(Boolean).join(" ");
+      const { companyName: detectedCompanyName, resolvedDisplayName, useCompanyName: detectedUseCompanyName } = detectCompany(contactName, firstName, lastName);
       const contactType = get(row, mapping.contactType);
       const relType = get(row, mapping.relationshipType);
 
@@ -370,7 +401,9 @@ export async function executeCombined(
         const resolvedType = resolveContactType(contactType, relType);
 
         const contactData = {
-          displayName: contactName || primaryEmail!,
+          displayName: resolvedDisplayName || primaryEmail!,
+          companyName: detectedCompanyName,
+          useCompanyName: detectedUseCompanyName,
           firstName: firstName || null,
           lastName: lastName || null,
           contactType: resolvedType,
