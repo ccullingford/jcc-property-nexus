@@ -85,6 +85,7 @@ export interface IStorage {
 
   // Messages
   getMessagesByThread(threadId: number): Promise<MessageWithAttachments[]>;
+  markThreadMessagesRead(threadId: number): Promise<void>;
   createMessage(message: InsertMessage): Promise<Message>;
   createAttachment(attachment: InsertAttachment): Promise<Attachment>;
   getAttachmentWithMailbox(attachmentId: number): Promise<{ attachment: Attachment; microsoftMessageId: string; mailboxEmail: string } | undefined>;
@@ -282,6 +283,10 @@ export class DatabaseStorage implements IStorage {
       result.push({ ...m, attachments: atts });
     }
     return result;
+  }
+
+  async markThreadMessagesRead(threadId: number) {
+    await db.update(messages).set({ isRead: true }).where(eq(messages.threadId, threadId));
   }
 
   async createMessage(m: InsertMessage) { const [r] = await db.insert(messages).values(m).returning(); return r; }

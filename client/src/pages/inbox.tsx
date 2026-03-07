@@ -15,9 +15,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   Inbox, RefreshCw, Paperclip, Mail, ChevronDown,
   AlertCircle, Clock, CheckCheck, Search, Filter, X,
-  Reply, ReplyAll, Send, UserPlus, UserX
+  Reply, ReplyAll, Send, UserPlus, UserX, Forward
 } from "lucide-react";
-import type { Mailbox, EmailThread, Message, Attachment, User, Contact } from "@shared/schema";
+import type { Mailbox, EmailThread, Message, Attachment, User, Contact, MailboxSignature } from "@shared/schema";
 import type { ContactWithDetails } from "@shared/routes";
 import { CONTACT_TYPES } from "@shared/routes";
 import { ThreadSidebar } from "@/components/thread-sidebar";
@@ -411,6 +411,100 @@ function QuickCreateContactDialog({
   );
 }
 
+// ─── Signature helper ─────────────────────────────────────────────────────────
+function resolveSignature(signatures: MailboxSignature[], mailboxId: number, fallback: string): string {
+  const specific = signatures.find(s => s.mailboxId === mailboxId);
+  const defaultSig = signatures.find(s => !s.mailboxId);
+  const sig = specific ?? defaultSig;
+  return sig ? `\n\n${sig.body}` : fallback;
+}
+
+// ─── Contact Tag Input (for compose/forward) ──────────────────────────────────
+function ContactTagInput({
+  label, value, onChange, testId, placeholder,
+}: {
+  label: string; value: string[]; onChange: (v: string[]) => void; testId: string; placeholder?: string;
+}) {
+  const [raw, setRaw] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const { data: results = [] } = useQuery<Contact[]>({
+    queryKey: ["/api/contacts", "ac", raw],
+    queryFn: () => fetch(`/api/contacts?q=${encodeURIComponent(raw)}&limit=8`).then(r => r.json()),
+    enabled: raw.length >= 2,
+    staleTime: 10000,
+  });
+
+  const showDropdown = dropdownOpen && raw.length >= 2 && results.length > 0;
+  useEffect(() => setHighlightIdx(0), [raw]);
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  function addEmail(email: string) {
+    if (!email || value.includes(email)) return;
+    onChange([...value, email]);
+    setRaw(""); setDropdownOpen(false);
+  }
+  function commit() { const e = raw.trim(); if (e) addEmail(e); else setDropdownOpen(false); }
+
+  return (
+    <div className="space-y-1" ref={containerRef}>
+      <Label className="text-xs">{label}</Label>
+      <div className="relative">
+        <div className="flex flex-wrap gap-1 min-h-8 rounded-md border border-input bg-background px-2 py-1 text-sm focus-within:ring-1 focus-within:ring-ring">
+          {value.map(e => (
+            <span key={e} className="flex items-center gap-0.5 bg-muted text-foreground rounded px-1.5 py-0.5 text-xs">
+              {e}
+              <button type="button" onClick={() => onChange(value.filter(x => x !== e))} className="ml-0.5 hover:text-destructive"><X className="h-3 w-3" /></button>
+            </span>
+          ))}
+          <input
+            value={raw}
+            onChange={e => { setRaw(e.target.value); setDropdownOpen(true); }}
+            onKeyDown={e => {
+              if (showDropdown) {
+                if (e.key === "ArrowDown") { e.preventDefault(); setHighlightIdx(i => Math.min(i + 1, results.length - 1)); return; }
+                if (e.key === "ArrowUp") { e.preventDefault(); setHighlightIdx(i => Math.max(i - 1, 0)); return; }
+                if (e.key === "Enter") { e.preventDefault(); const c = results[highlightIdx]; if (c?.primaryEmail) addEmail(c.primaryEmail); else commit(); return; }
+                if (e.key === "Escape") { setDropdownOpen(false); return; }
+              }
+              if (e.key === "Enter" || e.key === ",") { e.preventDefault(); commit(); }
+              else if (e.key === "Backspace" && raw === "" && value.length > 0) onChange(value.slice(0, -1));
+            }}
+            onBlur={() => setTimeout(() => { commit(); setDropdownOpen(false); }, 150)}
+            placeholder={value.length === 0 ? (placeholder ?? "Add email…") : ""}
+            className="flex-1 min-w-[120px] bg-transparent outline-none text-xs"
+            data-testid={testId}
+            autoComplete="off"
+          />
+        </div>
+        {showDropdown && (
+          <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-md overflow-hidden">
+            {results.map((c, i) => (
+              <button
+                key={c.id} type="button"
+                className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${i === highlightIdx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
+                onMouseDown={e => { e.preventDefault(); if (c.primaryEmail) addEmail(c.primaryEmail); }}
+                onMouseEnter={() => setHighlightIdx(i)}
+              >
+                <span className="font-medium truncate">{c.displayName}</span>
+                {c.primaryEmail && <span className="text-muted-foreground truncate">{c.primaryEmail}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Reply compose panel ──────────────────────────────────────────────────────
 function ReplyCompose({
   thread,
@@ -427,12 +521,28 @@ function ReplyCompose({
   onClose: () => void;
   onSent: () => void;
 }) {
-  const [body, setBody] = useState("");
   const [fromMailboxId, setFromMailboxId] = useState<string>(String(thread.mailboxId));
   const { toast } = useToast();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => { textareaRef.current?.focus(); }, []);
+  const { data: signatures = [] } = useQuery<MailboxSignature[]>({ queryKey: ["/api/signatures"] });
+  const { data: selfUser } = useQuery<{ name: string }>({ queryKey: ["/api/auth/me"] });
+
+  const fallbackSig = selfUser ? `\n\n-- \n${selfUser.name}` : "";
+
+  const [body, setBody] = useState(() => resolveSignature([], 0, selfUser ? `\n\n-- \n${selfUser?.name ?? ""}` : ""));
+
+  useEffect(() => {
+    if (signatures.length > 0 || selfUser) {
+      setBody(resolveSignature(signatures, Number(fromMailboxId), fallbackSig));
+    }
+  }, [signatures.length, selfUser?.name]);
+
+  useEffect(() => {
+    setBody(resolveSignature(signatures, Number(fromMailboxId), fallbackSig));
+  }, [fromMailboxId]);
+
+  useEffect(() => { textareaRef.current?.focus(); textareaRef.current?.setSelectionRange(0, 0); }, []);
 
   const mutation = useMutation({
     mutationFn: () => apiRequest("POST", `/api/threads/${thread.id}/reply`, {
@@ -517,17 +627,127 @@ function ReplyCompose({
   );
 }
 
+// ─── Forward compose panel ───────────────────────────────────────────────────
+function ForwardCompose({
+  thread, forwardMessage, mailboxes, onClose, onSent,
+}: {
+  thread: ThreadWithMeta;
+  forwardMessage: MessageWithAttachments;
+  mailboxes: Mailbox[];
+  onClose: () => void;
+  onSent: () => void;
+}) {
+  const [fromMailboxId, setFromMailboxId] = useState<string>(String(thread.mailboxId));
+  const [to, setTo] = useState<string[]>([]);
+  const [cc, setCc] = useState<string[]>([]);
+  const [showCc, setShowCc] = useState(false);
+  const [subject, setSubject] = useState(() => thread.subject.startsWith("Fwd:") ? thread.subject : `Fwd: ${thread.subject}`);
+  const { toast } = useToast();
+
+  const { data: signatures = [] } = useQuery<MailboxSignature[]>({ queryKey: ["/api/signatures"] });
+  const { data: selfUser } = useQuery<{ name: string }>({ queryKey: ["/api/auth/me"] });
+  const fallbackSig = selfUser ? `\n\n-- \n${selfUser.name}` : "";
+
+  const [body, setBody] = useState(() => resolveSignature([], 0, fallbackSig));
+  useEffect(() => {
+    if (signatures.length > 0 || selfUser) setBody(resolveSignature(signatures, Number(fromMailboxId), fallbackSig));
+  }, [signatures.length, selfUser?.name]);
+  useEffect(() => {
+    setBody(resolveSignature(signatures, Number(fromMailboxId), fallbackSig));
+  }, [fromMailboxId]);
+
+  const mutation = useMutation({
+    mutationFn: () => apiRequest("POST", `/api/threads/${thread.id}/forward`, {
+      body: `<p>${body.replace(/\n/g, "<br>")}</p>`,
+      to,
+      cc: cc.length > 0 ? cc : undefined,
+      subject,
+      mailboxId: Number(fromMailboxId),
+      forwardMessage: {
+        senderName: forwardMessage.senderName,
+        senderEmail: forwardMessage.senderEmail,
+        receivedAt: forwardMessage.receivedAt,
+        bodyHtml: forwardMessage.bodyHtml,
+      },
+    }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads", thread.id, "messages"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
+      toast({ title: "Forwarded" });
+      onSent();
+    },
+    onError: (err: Error) => toast({ title: "Failed to forward", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <div className="border-t border-border bg-card shrink-0" data-testid="forward-compose">
+      <div className="px-4 pt-3 pb-2 border-b border-border/50 flex items-center justify-between gap-2">
+        <span className="text-sm font-medium text-foreground">Forward</span>
+        {mailboxes.length > 1 && (
+          <Select value={fromMailboxId} onValueChange={setFromMailboxId}>
+            <SelectTrigger className="h-7 text-xs w-44 shrink-0" data-testid="forward-from-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {mailboxes.map(m => (
+                <SelectItem key={m.id} value={String(m.id)}>{m.microsoftMailboxId ?? m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={onClose} data-testid="button-close-forward">
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="px-4 py-2 space-y-2">
+        <ContactTagInput label="To" value={to} onChange={setTo} testId="input-forward-to" placeholder="recipient@example.com" />
+        {showCc ? (
+          <ContactTagInput label="Cc" value={cc} onChange={setCc} testId="input-forward-cc" />
+        ) : (
+          <button type="button" className="text-xs text-muted-foreground hover:underline" onClick={() => setShowCc(true)}>+ Cc</button>
+        )}
+        <div className="space-y-1">
+          <Label className="text-xs">Subject</Label>
+          <Input value={subject} onChange={e => setSubject(e.target.value)} className="h-7 text-xs" data-testid="input-forward-subject" />
+        </div>
+        <Textarea
+          value={body}
+          onChange={e => setBody(e.target.value)}
+          placeholder="Add a message…"
+          className="min-h-[80px] resize-none text-sm"
+          data-testid="textarea-forward-body"
+        />
+        <div className="flex items-center justify-end gap-2">
+          <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
+          <Button
+            size="sm"
+            onClick={() => mutation.mutate()}
+            disabled={mutation.isPending || to.length === 0}
+            data-testid="button-send-forward"
+            className="gap-2"
+          >
+            <Forward className="h-3.5 w-3.5" />
+            {mutation.isPending ? "Forwarding..." : "Forward"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Message bubble ───────────────────────────────────────────────────────────
 function MessageCard({
   message,
   onReply,
   onReplyAll,
+  onForward,
   highlight,
   dimmed,
 }: {
   message: MessageWithAttachments;
   onReply: () => void;
   onReplyAll: () => void;
+  onForward: () => void;
   highlight?: boolean;
   dimmed?: boolean;
 }) {
@@ -538,7 +758,7 @@ function MessageCard({
 
   return (
     <div
-      className={`border border-border rounded-lg bg-card transition-opacity ${isOutbound ? "border-l-2 border-l-primary/30" : ""} ${highlight ? "border-l-2 border-l-primary ring-1 ring-primary/20" : ""} ${dimmed ? "opacity-70" : ""}`}
+      className={`group border border-border rounded-lg bg-card transition-opacity ${isOutbound ? "border-l-2 border-l-primary/30" : ""} ${highlight ? "border-l-2 border-l-primary ring-1 ring-primary/20" : ""} ${dimmed ? "opacity-70" : ""}`}
       data-testid={`message-card-${message.id}`}
     >
       {/* Header */}
@@ -578,6 +798,9 @@ function MessageCard({
                   </Button>
                 </>
               )}
+              <Button size="sm" variant="ghost" className="h-6 px-2 text-xs gap-1 text-muted-foreground hover:text-foreground" onClick={onForward} data-testid={`button-forward-${message.id}`}>
+                <Forward className="h-3 w-3" />Fwd
+              </Button>
             </div>
             {message.isRead ? (
               <CheckCheck className="h-3.5 w-3.5 text-muted-foreground/50" />
@@ -698,6 +921,7 @@ function ThreadDetail({
   onSelectThread: (id: number) => void;
 }) {
   const [replyState, setReplyState] = useState<{ message: MessageWithAttachments; replyAll: boolean } | null>(null);
+  const [forwardState, setForwardState] = useState<MessageWithAttachments | null>(null);
   const [ignoredContact, setIgnoredContact] = useState(false);
   const [showOlder, setShowOlder] = useState(false);
 
@@ -716,7 +940,20 @@ function ThreadDetail({
 
   const openReply = useCallback((message: MessageWithAttachments, replyAll: boolean) => {
     setReplyState({ message, replyAll });
+    setForwardState(null);
   }, []);
+
+  const openForward = useCallback((message: MessageWithAttachments) => {
+    setForwardState(message);
+    setReplyState(null);
+  }, []);
+
+  // Mark thread as read when opened
+  useEffect(() => {
+    apiRequest("POST", `/api/threads/${thread.id}/mark-read`).then(() => {
+      queryClient.invalidateQueries({ queryKey: ["/api/threads"] });
+    }).catch(() => {});
+  }, [thread.id]);
 
   // Next thread navigation
   const currentIndex = threads.findIndex(t => t.id === thread.id);
@@ -827,6 +1064,7 @@ function ThreadDetail({
                       message={msg}
                       onReply={() => openReply(msg, false)}
                       onReplyAll={() => openReply(msg, true)}
+                      onForward={() => openForward(msg)}
                       dimmed
                     />
                   ))}
@@ -845,6 +1083,7 @@ function ThreadDetail({
                       message={msg}
                       onReply={() => openReply(msg, false)}
                       onReplyAll={() => openReply(msg, true)}
+                      onForward={() => openForward(msg)}
                       highlight={i === 0 && !msg.isRead}
                     />
                   ))}
@@ -853,7 +1092,7 @@ function ThreadDetail({
             </div>
           </ScrollArea>
 
-          {/* Reply compose */}
+          {/* Compose / Forward */}
           {replyState ? (
             <ReplyCompose
               thread={thread}
@@ -863,14 +1102,31 @@ function ThreadDetail({
               onClose={() => setReplyState(null)}
               onSent={() => setReplyState(null)}
             />
-          ) : latestInbound && (
+          ) : forwardState ? (
+            <ForwardCompose
+              thread={thread}
+              forwardMessage={forwardState}
+              mailboxes={mailboxes ?? []}
+              onClose={() => setForwardState(null)}
+              onSent={() => setForwardState(null)}
+            />
+          ) : (
             <div className="px-4 py-2 border-t border-border bg-muted/30 shrink-0 flex gap-2">
-              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => openReply(latestInbound, false)} data-testid="button-quick-reply">
-                <Reply className="h-3.5 w-3.5" />Reply
-              </Button>
-              <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => openReply(latestInbound, true)} data-testid="button-quick-reply-all">
-                <ReplyAll className="h-3.5 w-3.5" />Reply All
-              </Button>
+              {latestInbound && (
+                <>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => openReply(latestInbound, false)} data-testid="button-quick-reply">
+                    <Reply className="h-3.5 w-3.5" />Reply
+                  </Button>
+                  <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => openReply(latestInbound, true)} data-testid="button-quick-reply-all">
+                    <ReplyAll className="h-3.5 w-3.5" />Reply All
+                  </Button>
+                </>
+              )}
+              {sortedMessages[0] && (
+                <Button size="sm" variant="outline" className="gap-1.5 text-xs" onClick={() => openForward(sortedMessages[0])} data-testid="button-quick-forward">
+                  <Forward className="h-3.5 w-3.5" />Forward
+                </Button>
+              )}
             </div>
           )}
         </div>

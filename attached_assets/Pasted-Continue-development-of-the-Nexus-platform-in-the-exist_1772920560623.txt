@@ -1,0 +1,277 @@
+Continue development of the Nexus platform in the existing Replit codebase.
+
+Project context:
+Nexus is a communication-centered operations platform for HOA and property management teams. Core concept: Communication → Threads → Issues → Tasks → Resolution → Knowledge. Stack is React frontend, Node.js backend, PostgreSQL database, Microsoft Graph for email, and Microsoft Entra for auth. Keep the existing architecture, service/domain separation, and AWS portability intact. Nexus is built around mailboxes, threads, messages, contacts, issues, tasks, associations, and units. :contentReference[oaicite:0]{index=0} :contentReference[oaicite:1]{index=1}
+
+Constraints:
+- React frontend
+- Node.js backend
+- PostgreSQL
+- Use migrations for schema changes
+- Do not break existing functionality
+- Preserve clean domain/service separation
+- Enforce permissions both in UI and API
+- Keep UI minimal and operationally efficient
+
+Current status:
+The recent email/contact/mailbox/search/linking updates have been completed and project documentation has been updated. Import is resolved. The next build phase should focus on finishing email workflow, inbox behavior, permissions, and operational context.
+
+Build the following in this priority order.
+
+==================================================
+1. COMPLETE EMAIL WORKFLOW
+==================================================
+
+Add Forward as a first-class email action.
+
+Requirements:
+- Users must be able to:
+  - Send new email
+  - Reply
+  - Reply all
+  - Forward
+- These actions should be available from any displayed email/thread
+- Allow choosing the sender mailbox for:
+  - new email
+  - reply
+  - reply all
+  - forward
+- Only show sender mailbox options the user is allowed to use
+- Ensure outbound mail remains associated correctly with thread history where applicable
+- For forward:
+  - include original message content below
+  - preserve readable formatting
+  - allow editing recipients, subject, and body
+  - default subject pattern should behave sensibly, e.g. prefixed forwarding subject if appropriate
+
+Also validate/finalize:
+- correct subject handling on new email
+- To / CC / BCC behavior
+- appended quoted original email on reply
+- recipient autocomplete
+- per-mailbox signatures
+
+Autocomplete requirements:
+- In To, CC, and BCC, typing should suggest contacts
+- Search by:
+  - first name
+  - last name
+  - display name
+  - company name
+  - email address
+- Keyboard-friendly selection
+- Show display label plus email when appropriate
+
+Signature requirements:
+- Signature customizable per mailbox the user can access
+- Fallback default signature:
+  - First Name + Last Name
+- Apply correct signature based on chosen sender mailbox
+
+==================================================
+2. FIX INBOX STATE MANAGEMENT
+==================================================
+
+Current issue:
+- Updating email status is not working reliably
+
+Requirements:
+- Fix read/unread updates
+- Fix archived state updates
+- Fix closed state updates if present in thread workflow
+- Ensure status changes persist in DB and UI
+- Ensure sync does not incorrectly overwrite user state changes
+
+Add new default inbox filter:
+- Open Mail
+
+Definition:
+- not archived
+- not closed
+
+Requirements:
+- Make Open Mail the default inbox view
+- Keep other filters available
+- Ensure inbox defaults to actionable work only
+
+==================================================
+3. PERSONAL MAILBOX UX + RBAC
+==================================================
+
+A. Personal mailbox location
+Requirements:
+- Move personal mailbox connection/setup to the user menu
+- Remove personal mailbox setup from Admin
+- Keep shared mailbox management in Admin
+- Use delegated OAuth for personal mailbox connection
+- Associate personal mailbox ownership to the current user
+
+B. RBAC
+Requirements:
+- Hide Admin in navigation for non-admin users
+- Enforce RBAC in:
+  - frontend nav
+  - frontend routes if applicable
+  - backend APIs
+- Non-admin users must not be able to access admin features by direct URL
+- Admin remains only for:
+  - mailbox configuration
+  - imports
+  - system settings
+  - type configuration
+
+==================================================
+4. CONTACT CREATION + LINKING ENHANCEMENTS
+==================================================
+
+Requirements:
+- If a contact does not exist during linking, allow inline creation
+- Do not force user to leave current workflow
+
+Unknown sender flow:
+When an email arrives from an unknown sender, prompt:
+- Create Contact
+- Link Existing Contact
+- Ignore for now
+
+When creating from email, try to extract and suggest:
+- phone number
+- alternate phone
+- role/title
+- company name
+- alternate email
+- signature block details
+- other obvious structured details
+
+After contact creation:
+- auto-link past matching activity where high confidence exists
+- present ambiguous matches for review
+
+Link/suggest linking for:
+- threads
+- messages
+- issues
+- tasks
+- associations
+- units
+
+Matching signals:
+- normalized email
+- normalized phone
+- lower-confidence name similarity only for review, not blind auto-linking
+
+Contact detail page:
+- show interaction history including:
+  - threads
+  - messages/emails
+  - issues
+  - tasks
+  - associations
+  - units
+
+Also:
+- remove import from contact page
+- import should exist only in Admin
+
+==================================================
+5. ENTITY LINKING DURING CREATION
+==================================================
+
+When creating issues and other records, allow linking to related entities during creation.
+
+Requirements:
+- On issue creation, allow linking to:
+  - contacts
+  - associations
+  - units
+  - threads when applicable
+- On task creation, allow linking to:
+  - issues
+  - threads
+  - associations
+  - units
+  - contacts when appropriate
+- Reuse autocomplete/search patterns where possible
+
+Also ensure merge support exists and is safe for:
+- duplicate contacts
+- duplicate issues
+
+Merge requirements:
+- preserve linked:
+  - threads
+  - tasks
+  - contacts
+  - associations
+  - units
+  - notes/history if present
+- implement minimal safe merge flow if current one is incomplete
+
+==================================================
+6. GLOBAL SEARCH BAR
+==================================================
+
+Requirements:
+- Keep existing keyboard shortcut behavior
+- Add a visible global search bar in the UI
+- Search across:
+  - threads
+  - issues
+  - contacts
+  - tasks
+  - associations
+  - units
+- Group results by entity type
+- Keep response fast and UI clean
+
+==================================================
+7. IMPLEMENTATION NOTES
+==================================================
+
+Likely touched areas:
+- inbox/thread view
+- compose email modal/page
+- mailbox settings
+- user menu
+- admin nav visibility
+- contact detail page
+- create/linking modals
+- search UI
+- backend routes/services for mailboxes, messages, threads, contacts, issues, tasks, auth/permissions
+
+Schema changes:
+Add or update schema as needed for:
+- mailbox signatures
+- mailbox ownership/access rules
+- role/permission data if incomplete
+- linking/merge support if incomplete
+
+Testing / validation:
+Test these end-to-end:
+1. Send new email from selected mailbox
+2. Reply from selected mailbox
+3. Reply all from selected mailbox
+4. Forward from selected mailbox
+5. Subject behaves correctly on new email
+6. To/CC/BCC autocomplete finds contacts
+7. Signature applies correctly per mailbox
+8. Read/unread/archive/close updates persist
+9. Open Mail is default inbox filter
+10. Connect personal mailbox from user menu
+11. Admin hidden for non-admin and protected server-side
+12. Create contact inline during linking
+13. Create contact from unknown sender with extracted suggestions
+14. Past matching activity links to new contact
+15. Contact page shows interaction history
+16. Create issue/task with related entity linking
+17. Merge duplicate contacts/issues without losing relationships
+
+Output expectations:
+- Implement directly in the codebase
+- Add migrations where needed
+- Keep code clean and production-oriented
+- After coding, summarize:
+  - schema changes
+  - backend routes/services changed
+  - frontend pages/components changed
+  - any recommended follow-up work

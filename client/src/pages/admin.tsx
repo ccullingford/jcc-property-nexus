@@ -4,6 +4,8 @@
   import { useState, useRef } from "react";
 import { useMailboxes, useCreateMailbox, useUpdateMailbox, useDeleteMailbox } from "@/hooks/use-mailboxes";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
+import { useUser } from "@/hooks/use-auth";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +57,13 @@ export function Admin() {
   const { data: mailboxes, isLoading } = useMailboxes();
   const [contactImportOpen, setContactImportOpen] = useState(false);
   const [combinedImportOpen, setCombinedImportOpen] = useState(false);
+  const { data: currentUser } = useUser();
+  const [, navigate] = useLocation();
+
+  if (currentUser && currentUser.role !== "admin" && currentUser.role !== "manager") {
+    navigate("/inbox");
+    return null;
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">

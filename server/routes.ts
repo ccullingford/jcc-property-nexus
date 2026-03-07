@@ -537,6 +537,94 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ─── Mark thread messages as read ────────────────────────────────────────
+  app.post("/api/threads/:id/mark-read", requireAuth, async (req, res) => {
+    try {
+      const threadId = Number(req.params.id);
+      await storage.markThreadMessagesRead(threadId);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Forward email ────────────────────────────────────────────────────────
+  app.post("/api/threads/:id/forward", requireAuth, async (req, res) => {
+    try {
+      const threadId = Number(req.params.id);
+      const { body, to, cc, bcc, subject: fwdSubject, mailboxId: fwdMailboxId, forwardMessage } = req.body as {
+        body: string;
+        to: string[];
+        cc?: string[];
+        bcc?: string[];
+        subject?: string;
+        mailboxId?: number;
+        forwardMessage?: { senderName?: string; senderEmail?: string; receivedAt?: string; bodyHtml?: string };
+      };
+
+      if (!to || to.length === 0) return res.status(400).json({ message: "At least one recipient required" });
+
+      const thread = await storage.getThread(threadId);
+      if (!thread) return res.status(404).json({ message: "Thread not found" });
+
+      const mailboxIdToUse = fwdMailboxId ?? thread.mailboxId;
+      const mailbox = await storage.getMailbox(mailboxIdToUse);
+      if (!mailbox?.microsoftMailboxId) return res.status(400).json({ message: "Mailbox not configured" });
+
+      const subject = fwdSubject ?? (thread.subject.startsWith("Fwd:") ? thread.subject : `Fwd: ${thread.subject}`);
+
+      let quotedHtml = "";
+      if (forwardMessage) {
+        const dateStr = forwardMessage.receivedAt
+          ? new Date(forwardMessage.receivedAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })
+          : "";
+        quotedHtml = `<br/><hr style="border:none;border-top:1px solid #ccc;margin:16px 0"/>` +
+          `<div style="color:#666;font-size:13px;margin-bottom:4px"><strong>---------- Forwarded message ----------</strong></div>` +
+          `<div style="color:#666;font-size:13px">From: <strong>${forwardMessage.senderName ?? forwardMessage.senderEmail}</strong> &lt;${forwardMessage.senderEmail}&gt;</div>` +
+          `<div style="color:#666;font-size:13px;margin-bottom:8px">Date: ${dateStr}</div>` +
+          `<div>${forwardMessage.bodyHtml ?? ""}</div>`;
+      }
+
+      const fullBody = body + quotedHtml;
+      const toRecipients = to.map(addr => ({ emailAddress: { address: addr } }));
+      const ccRecipients = (cc ?? []).map(addr => ({ emailAddress: { address: addr } }));
+      const bccRecipients = (bcc ?? []).map(addr => ({ emailAddress: { address: addr } }));
+
+      await sendMail(mailbox.microsoftMailboxId, {
+        subject,
+        body: { contentType: "HTML", content: fullBody },
+        toRecipients,
+        ccRecipients: ccRecipients.length > 0 ? ccRecipients : undefined,
+        bccRecipients: bccRecipients.length > 0 ? bccRecipients : undefined,
+      });
+
+      const now = new Date();
+      const userId = req.session.userId!;
+      const user = await storage.getUser(userId);
+      const savedMsg = await storage.createMessage({
+        threadId,
+        microsoftMessageId: null,
+        senderEmail: mailbox.microsoftMailboxId!,
+        senderName: user?.name ?? "Me",
+        recipients: to,
+        subject,
+        bodyPreview: body.replace(/<[^>]+>/g, "").slice(0, 200),
+        bodyText: null,
+        bodyHtml: fullBody,
+        receivedAt: now,
+        hasAttachments: false,
+        isRead: true,
+        direction: "outbound",
+        updatedAt: now,
+      });
+
+      await storage.updateThread(threadId, { lastMessageAt: now, updatedAt: now });
+      res.status(201).json(savedMsg);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message || "Forward failed" });
+    }
+  });
+
   // ─── Thread Workflow Actions ──────────────────────────────────────────────
   app.post(api.threads.claim.path, async (req, res) => {
     try {

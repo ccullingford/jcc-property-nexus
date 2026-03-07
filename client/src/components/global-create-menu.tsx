@@ -309,6 +309,30 @@ function ComposeEmailDialog({
 
   const effectiveMailboxId = mailboxId || (mailboxes[0] ? String(mailboxes[0].id) : "");
 
+  const { data: signatures = [] } = useQuery<{ id: number; mailboxId: number | null; body: string }[]>({
+    queryKey: ["/api/signatures"],
+    enabled: open,
+  });
+  const { data: selfUser } = useQuery<{ name: string }>({
+    queryKey: ["/api/auth/me"],
+    enabled: open,
+  });
+
+  function resolveSignature(mbId: number): string {
+    const specific = signatures.find(s => s.mailboxId === mbId);
+    const def = signatures.find(s => !s.mailboxId);
+    const sig = specific ?? def;
+    const fallback = selfUser ? `\n\n-- \n${selfUser.name}` : "";
+    return sig ? `\n\n${sig.body}` : fallback;
+  }
+
+  useEffect(() => {
+    if (open && (signatures.length > 0 || selfUser)) {
+      const mbId = Number(effectiveMailboxId);
+      if (mbId) setBody(resolveSignature(mbId));
+    }
+  }, [open, signatures.length, selfUser?.name, effectiveMailboxId]);
+
   const mutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/email/send", {
