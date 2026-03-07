@@ -45,7 +45,7 @@ export type TaskStatus = typeof TASK_STATUSES[number];
 export const TASK_PRIORITIES = ["Low", "Normal", "High", "Urgent"] as const;
 export type TaskPriority = typeof TASK_PRIORITIES[number];
 
-export const CONTACT_TYPES = ["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Other"] as const;
+export const CONTACT_TYPES = ["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Property Manager", "Other"] as const;
 export type ContactType = typeof CONTACT_TYPES[number];
 
 export const ISSUE_STATUSES = ["Open", "In Progress", "Waiting", "Resolved", "Closed"] as const;

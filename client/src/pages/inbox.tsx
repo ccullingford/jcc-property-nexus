@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import type { Mailbox, EmailThread, Message, Attachment, User, Contact } from "@shared/schema";
 import type { ContactWithDetails } from "@shared/routes";
+import { CONTACT_TYPES } from "@shared/routes";
 import { ThreadSidebar } from "@/components/thread-sidebar";
 
 // ─── Type extensions ───────────────────────────────────────────────────────────
@@ -301,16 +302,57 @@ function QuickCreateContactDialog({
   threadId: number;
   onCreated: () => void;
 }) {
+  const { toast } = useToast();
+  const lastAutoRef = useRef("");
+
+  function parseName(full: string) {
+    const parts = full.trim().split(/\s+/);
+    if (parts.length >= 2) return { first: parts[0], last: parts.slice(1).join(" ") };
+    return { first: full.trim(), last: "" };
+  }
+
+  const { first: initFirst, last: initLast } = parseName(prefillName);
+  const [firstName, setFirstName] = useState(initFirst);
+  const [lastName, setLastName] = useState(initLast);
   const [displayName, setDisplayName] = useState(prefillName);
   const [email, setEmail] = useState(prefillEmail);
   const [contactType, setContactType] = useState("Other");
-  const { toast } = useToast();
 
-  useEffect(() => { setDisplayName(prefillName); setEmail(prefillEmail); }, [prefillName, prefillEmail]);
+  useEffect(() => {
+    const { first, last } = parseName(prefillName);
+    setFirstName(first);
+    setLastName(last);
+    setDisplayName(prefillName);
+    setEmail(prefillEmail);
+    lastAutoRef.current = prefillName;
+  }, [prefillName, prefillEmail]);
+
+  function handleFirstChange(v: string) {
+    setFirstName(v);
+    const auto = [v, lastName].filter(Boolean).join(" ").trim();
+    if (displayName === lastAutoRef.current || displayName === "") {
+      setDisplayName(auto);
+      lastAutoRef.current = auto;
+    }
+  }
+  function handleLastChange(v: string) {
+    setLastName(v);
+    const auto = [firstName, v].filter(Boolean).join(" ").trim();
+    if (displayName === lastAutoRef.current || displayName === "") {
+      setDisplayName(auto);
+      lastAutoRef.current = auto;
+    }
+  }
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const contact = await apiRequest("POST", "/api/contacts", { displayName, primaryEmail: email, contactType }).then(r => r.json());
+      const contact = await apiRequest("POST", "/api/contacts", {
+        displayName: displayName.trim() || [firstName, lastName].filter(Boolean).join(" "),
+        firstName: firstName.trim() || null,
+        lastName: lastName.trim() || null,
+        primaryEmail: email,
+        contactType,
+      }).then(r => r.json());
       await apiRequest("POST", `/api/threads/${threadId}/contacts`, { contactId: contact.id, relationshipType: null });
       return contact;
     },
@@ -320,25 +362,36 @@ function QuickCreateContactDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[380px]">
+      <DialogContent className="sm:max-w-[400px]">
         <DialogHeader>
           <DialogTitle>Create Contact</DialogTitle>
+          <p className="text-xs text-muted-foreground mt-1">The new contact will be automatically linked to this thread.</p>
         </DialogHeader>
-        <div className="grid gap-4 py-4">
-          <div className="grid gap-2">
-            <Label>Full Name</Label>
-            <Input value={displayName} onChange={e => setDisplayName(e.target.value)} placeholder="Contact name" data-testid="input-quick-contact-name" />
+        <div className="grid gap-3 py-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="grid gap-1.5">
+              <Label className="text-xs">First Name</Label>
+              <Input value={firstName} onChange={e => handleFirstChange(e.target.value)} placeholder="Jane" className="h-8" data-testid="input-quick-contact-firstname" />
+            </div>
+            <div className="grid gap-1.5">
+              <Label className="text-xs">Last Name</Label>
+              <Input value={lastName} onChange={e => handleLastChange(e.target.value)} placeholder="Smith" className="h-8" data-testid="input-quick-contact-lastname" />
+            </div>
           </div>
-          <div className="grid gap-2">
-            <Label>Email</Label>
-            <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" data-testid="input-quick-contact-email" />
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Display Name</Label>
+            <Input value={displayName} onChange={e => { setDisplayName(e.target.value); lastAutoRef.current = e.target.value; }} placeholder="Full name" className="h-8" data-testid="input-quick-contact-name" />
           </div>
-          <div className="grid gap-2">
-            <Label>Contact Type</Label>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Email</Label>
+            <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="email@example.com" className="h-8" data-testid="input-quick-contact-email" />
+          </div>
+          <div className="grid gap-1.5">
+            <Label className="text-xs">Contact Type</Label>
             <Select value={contactType} onValueChange={setContactType}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger className="h-8"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {["Owner", "Tenant", "Vendor", "Board", "Realtor", "Attorney", "Other"].map(t => (
+                {CONTACT_TYPES.map(t => (
                   <SelectItem key={t} value={t}>{t}</SelectItem>
                 ))}
               </SelectContent>
@@ -346,8 +399,8 @@ function QuickCreateContactDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancel</Button>
-          <Button onClick={() => mutation.mutate()} disabled={mutation.isPending || !displayName.trim()} data-testid="button-save-quick-contact">
+          <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={mutation.isPending}>Cancel</Button>
+          <Button size="sm" onClick={() => mutation.mutate()} disabled={mutation.isPending || !displayName.trim()} data-testid="button-save-quick-contact">
             {mutation.isPending ? "Creating..." : "Create & Link"}
           </Button>
         </DialogFooter>
