@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useLocation } from "wouter";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -27,10 +27,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, AlertCircle, CheckSquare, Users, Building2, Loader2, Mail, X } from "lucide-react";
+import { Plus, AlertCircle, CheckSquare, Users, Building2, Loader2, Mail, X, Search } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import type { Association, Mailbox } from "@shared/schema";
+import type { Association, Mailbox, Contact } from "@shared/schema";
 
 type CreateType = "issue" | "task" | "contact" | "association" | "email" | null;
 
@@ -182,16 +182,59 @@ function EmailTagInput({
   placeholder?: string;
 }) {
   const [raw, setRaw] = useState("");
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [highlightIdx, setHighlightIdx] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const { data: contactResults = [] } = useQuery<Contact[]>({
+    queryKey: ["/api/contacts", "autocomplete", raw],
+    queryFn: () => fetch(`/api/contacts?q=${encodeURIComponent(raw)}&limit=8`).then(r => r.json()),
+    enabled: raw.length >= 2,
+    staleTime: 10000,
+  });
+
+  const showDropdown = dropdownOpen && raw.length >= 2 && contactResults.length > 0;
+
+  useEffect(() => { setHighlightIdx(0); }, [raw, contactResults.length]);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  function addEmail(email: string) {
+    if (!email) return;
+    if (!value.includes(email)) onChange([...value, email]);
+    setRaw("");
+    setDropdownOpen(false);
+  }
 
   function commit() {
     const email = raw.trim();
     if (!email) return;
-    if (!value.includes(email)) onChange([...value, email]);
-    setRaw("");
+    addEmail(email);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter" || e.key === "," || e.key === " ") {
+    if (showDropdown) {
+      if (e.key === "ArrowDown") { e.preventDefault(); setHighlightIdx(i => Math.min(i + 1, contactResults.length - 1)); return; }
+      if (e.key === "ArrowUp") { e.preventDefault(); setHighlightIdx(i => Math.max(i - 1, 0)); return; }
+      if (e.key === "Enter") {
+        e.preventDefault();
+        const c = contactResults[highlightIdx];
+        if (c?.primaryEmail) addEmail(c.primaryEmail);
+        else commit();
+        return;
+      }
+      if (e.key === "Escape") { setDropdownOpen(false); return; }
+    }
+    if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       commit();
     } else if (e.key === "Backspace" && raw === "" && value.length > 0) {
@@ -200,26 +243,47 @@ function EmailTagInput({
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5" ref={containerRef}>
       <Label>{label}</Label>
-      <div className="flex flex-wrap gap-1 min-h-9 rounded-md border border-input bg-background px-2 py-1 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
-        {value.map((email) => (
-          <span key={email} className="flex items-center gap-0.5 bg-muted text-foreground rounded px-1.5 py-0.5 text-xs">
-            {email}
-            <button type="button" onClick={() => onChange(value.filter(e => e !== email))} className="ml-0.5 hover:text-destructive">
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
-        <input
-          value={raw}
-          onChange={(e) => setRaw(e.target.value)}
-          onKeyDown={onKeyDown}
-          onBlur={commit}
-          placeholder={value.length === 0 ? (placeholder ?? "Add email…") : ""}
-          className="flex-1 min-w-[120px] bg-transparent outline-none text-sm"
-          data-testid={testId}
-        />
+      <div className="relative">
+        <div className="flex flex-wrap gap-1 min-h-9 rounded-md border border-input bg-background px-2 py-1 text-sm focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+          {value.map((email) => (
+            <span key={email} className="flex items-center gap-0.5 bg-muted text-foreground rounded px-1.5 py-0.5 text-xs">
+              {email}
+              <button type="button" onClick={() => onChange(value.filter(e => e !== email))} className="ml-0.5 hover:text-destructive">
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+          <input
+            ref={inputRef}
+            value={raw}
+            onChange={(e) => { setRaw(e.target.value); setDropdownOpen(true); }}
+            onKeyDown={onKeyDown}
+            onBlur={() => { setTimeout(() => { commit(); setDropdownOpen(false); }, 150); }}
+            placeholder={value.length === 0 ? (placeholder ?? "Add email…") : ""}
+            className="flex-1 min-w-[120px] bg-transparent outline-none text-sm"
+            data-testid={testId}
+            autoComplete="off"
+          />
+        </div>
+        {showDropdown && (
+          <div className="absolute z-50 left-0 right-0 top-full mt-1 bg-popover border border-border rounded-md shadow-md overflow-hidden" data-testid={`${testId}-dropdown`}>
+            {contactResults.map((c, i) => (
+              <button
+                key={c.id}
+                type="button"
+                className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 ${i === highlightIdx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
+                onMouseDown={(e) => { e.preventDefault(); if (c.primaryEmail) addEmail(c.primaryEmail); }}
+                onMouseEnter={() => setHighlightIdx(i)}
+              >
+                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
+                <span className="font-medium truncate">{c.displayName}</span>
+                {c.primaryEmail && <span className="text-xs text-muted-foreground truncate">{c.primaryEmail}</span>}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

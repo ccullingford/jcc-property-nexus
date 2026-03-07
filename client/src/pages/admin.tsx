@@ -637,7 +637,6 @@ function MailboxDialog({ mode, defaultValues }: { mode: "create" | "edit"; defau
                   <SelectTrigger data-testid="select-mailbox-type"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="shared">Shared Mailbox</SelectItem>
-                    <SelectItem value="personal">Personal Account</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

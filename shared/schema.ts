@@ -474,6 +474,22 @@ export type Solution = typeof solutionLibrary.$inferSelect;
 export type InsertSolution = z.infer<typeof insertSolutionSchema>;
 
 // ============================================================
+// MAILBOX SIGNATURES
+// ============================================================
+export const mailboxSignatures = pgTable("mailbox_signatures", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  mailboxId: integer("mailbox_id").references(() => mailboxes.id),
+  body: text("body").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertMailboxSignatureSchema = createInsertSchema(mailboxSignatures).omit({ id: true, createdAt: true, updatedAt: true });
+export type MailboxSignature = typeof mailboxSignatures.$inferSelect;
+export type InsertMailboxSignature = z.infer<typeof insertMailboxSignatureSchema>;
+
+// ============================================================
 // API CONTRACT TYPES
 // ============================================================
 export type UpdateUserRequest = Partial<InsertUser>;

@@ -2,7 +2,7 @@ import { db } from "./db";
 import {
   users, mailboxes, emailThreads, messages, attachments, contacts, contactPhones,
   contactEmails, associations, properties, units, issues, tasks, notes, calls, activityLog,
-  issueThreads, threadContacts,
+  issueThreads, threadContacts, mailboxSignatures,
   type User, type InsertUser,
   type Mailbox, type InsertMailbox,
   type EmailThread, type InsertEmailThread,
@@ -18,6 +18,7 @@ import {
   type Call, type InsertCall,
   type ActivityLog, type InsertActivityLog,
   typeLabels, type TypeLabel, type InsertTypeLabel,
+  type MailboxSignature, type InsertMailboxSignature,
 } from "@shared/schema";
 import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull, ilike, gte, lte, exists } from "drizzle-orm";
 import type { TaskWithMeta } from "@shared/routes";
@@ -146,6 +147,12 @@ export interface IStorage {
   createTypeLabel(label: InsertTypeLabel): Promise<TypeLabel>;
   updateTypeLabel(id: number, updates: Partial<InsertTypeLabel>): Promise<TypeLabel>;
   deleteTypeLabel(id: number): Promise<void>;
+
+  // Signatures
+  getSignaturesByUser(userId: number): Promise<MailboxSignature[]>;
+  createSignature(sig: InsertMailboxSignature): Promise<MailboxSignature>;
+  updateSignature(id: number, userId: number, body: string): Promise<MailboxSignature>;
+  deleteSignature(id: number, userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -194,7 +201,13 @@ export class DatabaseStorage implements IStorage {
         ? isNull(emailThreads.assignedUserId)
         : eq(emailThreads.assignedUserId, filters.assignedUserId));
     }
-    if (filters.status) conditions.push(eq(emailThreads.status, filters.status));
+    if (filters.status) {
+      if (filters.status === "open_mail") {
+        conditions.push(or(eq(emailThreads.status, "Open"), eq(emailThreads.status, "Waiting"))!);
+      } else {
+        conditions.push(eq(emailThreads.status, filters.status));
+      }
+    }
     if (filters.contactId) conditions.push(eq(emailThreads.contactId, filters.contactId));
     if (filters.dateFrom) conditions.push(gte(emailThreads.lastMessageAt, filters.dateFrom));
     if (filters.dateTo) conditions.push(lte(emailThreads.lastMessageAt, filters.dateTo));
@@ -453,6 +466,24 @@ export class DatabaseStorage implements IStorage {
   async createTypeLabel(l: InsertTypeLabel) { const [r] = await db.insert(typeLabels).values(l).returning(); return r; }
   async updateTypeLabel(id: number, u: Partial<InsertTypeLabel>) { const [r] = await db.update(typeLabels).set(u).where(eq(typeLabels.id, id)).returning(); return r; }
   async deleteTypeLabel(id: number) { await db.delete(typeLabels).where(eq(typeLabels.id, id)); }
+
+  // Signatures
+  async getSignaturesByUser(userId: number) {
+    return db.select().from(mailboxSignatures).where(eq(mailboxSignatures.userId, userId)).orderBy(mailboxSignatures.mailboxId);
+  }
+  async createSignature(sig: InsertMailboxSignature) {
+    const now = new Date();
+    const [r] = await db.insert(mailboxSignatures).values({ ...sig, createdAt: now, updatedAt: now }).returning();
+    return r;
+  }
+  async updateSignature(id: number, userId: number, body: string) {
+    const [r] = await db.update(mailboxSignatures).set({ body, updatedAt: new Date() })
+      .where(and(eq(mailboxSignatures.id, id), eq(mailboxSignatures.userId, userId))).returning();
+    return r;
+  }
+  async deleteSignature(id: number, userId: number) {
+    await db.delete(mailboxSignatures).where(and(eq(mailboxSignatures.id, id), eq(mailboxSignatures.userId, userId)));
+  }
 }
 
 export const storage = new DatabaseStorage();

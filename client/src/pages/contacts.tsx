@@ -13,7 +13,6 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { ImportWizardDialog } from "@/components/contact-import-dialog";
 import {
   Users, Search, Plus, Phone, Mail, Link2, MessageSquare,
   CheckCircle2, Clock, X, ChevronRight, Upload, Filter,
@@ -824,7 +823,6 @@ export function ContactsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
-  const [importOpen, setImportOpen] = useState(false);
   const [duplicatesOpen, setDuplicatesOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterType, setFilterType] = useState("all");
@@ -880,9 +878,6 @@ export function ContactsPage() {
               <GitMerge className="h-3 w-3" />{duplicates.length}
             </Button>
           )}
-          <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" onClick={() => setImportOpen(true)} data-testid="button-import-contacts">
-            <Upload className="h-3 w-3" />Import
-          </Button>
           <Button size="sm" variant="outline" className="h-7 px-2.5 text-xs" onClick={() => setCreateOpen(true)} data-testid="button-new-contact">
             <Plus className="h-3 w-3 mr-0.5" />New
           </Button>
@@ -1003,7 +998,6 @@ export function ContactsPage() {
       </div>
 
       <CreateContactDialog open={createOpen} onClose={() => setCreateOpen(false)} />
-      <ImportWizardDialog open={importOpen} onClose={() => setImportOpen(false)} />
       <DuplicatesDialog open={duplicatesOpen} onClose={() => setDuplicatesOpen(false)} />
     </div>
   );

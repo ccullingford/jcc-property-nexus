@@ -416,16 +416,19 @@ function ReplyCompose({
   thread,
   replyToMessage,
   replyAll,
+  mailboxes,
   onClose,
   onSent,
 }: {
   thread: ThreadWithMeta;
   replyToMessage: MessageWithAttachments;
   replyAll: boolean;
+  mailboxes: Mailbox[];
   onClose: () => void;
   onSent: () => void;
 }) {
   const [body, setBody] = useState("");
+  const [fromMailboxId, setFromMailboxId] = useState<string>(String(thread.mailboxId));
   const { toast } = useToast();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -436,6 +439,13 @@ function ReplyCompose({
       body: `<p>${body.replace(/\n/g, "<br>")}</p>`,
       replyAll,
       to: replyAll ? undefined : [replyToMessage.senderEmail],
+      mailboxId: Number(fromMailboxId),
+      replyToMessage: {
+        senderName: replyToMessage.senderName,
+        senderEmail: replyToMessage.senderEmail,
+        receivedAt: replyToMessage.receivedAt,
+        bodyHtml: replyToMessage.bodyHtml,
+      },
     }).then(r => r.json()),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/threads", thread.id, "messages"] });
@@ -452,13 +462,25 @@ function ReplyCompose({
 
   return (
     <div className="border-t border-border bg-card shrink-0" data-testid="reply-compose">
-      <div className="px-4 pt-3 pb-1 flex items-center justify-between">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span className="font-medium text-foreground">{replyAll ? "Reply All" : "Reply"}</span>
-          <span>to</span>
-          <span className="font-mono text-xs bg-secondary px-1.5 py-0.5 rounded truncate max-w-[300px]" data-testid="reply-to-address">{recipientDisplay}</span>
+      <div className="px-4 pt-3 pb-1 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground flex-1 min-w-0">
+          <span className="font-medium text-foreground shrink-0">{replyAll ? "Reply All" : "Reply"}</span>
+          <span className="shrink-0">to</span>
+          <span className="font-mono text-xs bg-secondary px-1.5 py-0.5 rounded truncate max-w-[200px]" data-testid="reply-to-address">{recipientDisplay}</span>
         </div>
-        <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={onClose} data-testid="button-close-reply">
+        {mailboxes.length > 1 && (
+          <Select value={fromMailboxId} onValueChange={setFromMailboxId}>
+            <SelectTrigger className="h-7 text-xs w-40 shrink-0" data-testid="reply-from-select">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {mailboxes.map(m => (
+                <SelectItem key={m.id} value={String(m.id)}>{m.microsoftMailboxId ?? m.name}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 shrink-0" onClick={onClose} data-testid="button-close-reply">
           <X className="h-4 w-4" />
         </Button>
       </div>
@@ -837,6 +859,7 @@ function ThreadDetail({
               thread={thread}
               replyToMessage={replyState.message}
               replyAll={replyState.replyAll}
+              mailboxes={mailboxes ?? []}
               onClose={() => setReplyState(null)}
               onSent={() => setReplyState(null)}
             />
@@ -895,7 +918,7 @@ function FilterPanel({
   users: User[];
 }) {
   const activeCount = [
-    filters.status !== "all",
+    filters.status !== "open_mail",
     filters.unreadOnly,
     filters.hasAttachments,
     filters.assignedUserId !== "all",
@@ -913,6 +936,7 @@ function FilterPanel({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="open_mail">Open Mail</SelectItem>
               <SelectItem value="all">All statuses</SelectItem>
               <SelectItem value="Open">Open</SelectItem>
               <SelectItem value="Waiting">Waiting</SelectItem>
@@ -957,7 +981,7 @@ function FilterPanel({
         {activeCount > 0 && (
           <button
             className="text-xs text-primary hover:underline ml-auto"
-            onClick={() => onChange({ status: "all", unreadOnly: false, hasAttachments: false, assignedUserId: "all", hasTask: false, hasIssue: false })}
+            onClick={() => onChange({ status: "open_mail", unreadOnly: false, hasAttachments: false, assignedUserId: "all", hasTask: false, hasIssue: false })}
             data-testid="button-clear-filters"
           >
             Clear filters ({activeCount})
@@ -976,7 +1000,7 @@ export function InboxPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<InboxFilters>({
     search: "",
-    status: "all",
+    status: "open_mail",
     unreadOnly: false,
     hasAttachments: false,
     assignedUserId: "all",
@@ -1030,7 +1054,7 @@ export function InboxPage() {
   const unreadTotal = threads?.reduce((sum, t) => sum + t.unreadCount, 0) ?? 0;
 
   const activeFilterCount = [
-    filters.status !== "all",
+    filters.status !== "open_mail",
     filters.unreadOnly,
     filters.hasAttachments,
     filters.assignedUserId !== "all",

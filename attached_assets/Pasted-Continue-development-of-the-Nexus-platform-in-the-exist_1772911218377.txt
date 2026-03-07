@@ -1,0 +1,351 @@
+Continue development of the Nexus platform in the existing Replit codebase.
+
+Project context:
+Nexus is a communication-centered operations platform for HOA and property management teams. Core concept: Communication → Threads → Issues → Tasks → Resolution → Knowledge. The system uses React frontend, Node.js backend, PostgreSQL database, Microsoft Graph for email, and Microsoft Entra for auth. Keep the current architecture, domain separation, and AWS portability intact.
+
+Architectural constraints:
+- React frontend
+- Node.js backend
+- PostgreSQL
+- Keep service/module separation by domain
+- Use migrations for schema changes
+- Do not break existing functionality
+- Preserve portability for future AWS deployment
+- Follow REST/domain organization already used in the app
+- Enforce permissions on both frontend and backend
+- Prefer clean, minimal UI
+
+Relevant platform model:
+- Mailboxes include shared and personal mailboxes
+- Shared mailboxes use app credentials
+- Personal mailboxes use delegated OAuth
+- Sent mail must remain attached to the same thread
+- Threads, issues, tasks, contacts, associations, and units are all linked entities
+- Contacts should support multiple emails and multiple phones
+- Association and unit context are important operationally
+
+Current priority:
+Imports are resolved. Focus now on stabilizing the operational workflow around email, contacts, linking, mailbox management, and permissions.
+
+Build the following in priority order.
+
+==================================================
+1. EMAIL WORKFLOW STABILIZATION
+==================================================
+
+A. Mailbox picker for outbound mail
+When sending an email, the user must be able to choose which mailbox to send from.
+
+Requirements:
+- Support sender selection for:
+  - new email
+  - reply
+  - reply all
+- Allow sending from any mailbox the user is allowed to use
+- Respect permissions and mailbox ownership/access
+- Shared mailboxes and personal mailboxes must both work correctly
+- Sent messages must remain associated with the correct thread
+
+B. Fix incorrect subject behavior
+Current bug:
+- In + Create → Email, the subject becomes the recipient name
+
+Requirements:
+- Subject must be a separate field
+- To / CC / BCC must not overwrite or populate the subject
+- Subject should be blank unless intentionally entered or derived from a reply thread
+
+C. Reply and reply-all behavior
+Requirements:
+- Users must be able to reply and reply all from any displayed email/thread
+- When replying, append the original email below the new message
+- Keep formatting clean and readable
+- Ensure the response is attached to the proper thread
+
+D. Recipient autocomplete
+In To, CC, and BCC fields, contacts should autocomplete as the user types.
+
+Example:
+- typing “hun” should suggest “Hunter Bick”
+
+Requirements:
+- Search against:
+  - first name
+  - last name
+  - display name
+  - company name
+  - email addresses
+- Fast results
+- Keyboard-friendly selection
+- Show display label plus email when appropriate
+
+E. Signatures
+Allow users to manage email signatures.
+
+Requirements:
+- Signatures should be customizable per mailbox the user has access to
+- If no custom signature exists, default to:
+  - First Name + Last Name
+- Signature settings should be editable in the user-facing account area, not buried in admin
+- Apply the correct signature based on selected sender mailbox
+- Support both shared mailbox and personal mailbox signature configuration where appropriate
+
+F. Personal mailbox email deletion
+Requirements:
+- Allow users to delete emails from personal mailboxes
+- Do not assume the same permission applies to shared mailboxes
+- Enforce ownership/permission checks
+- Sync the deletion state properly with the underlying mailbox provider
+- Add confirmation UX before delete
+
+G. Fix email status updates
+Current bug:
+- Updating email status is not working
+
+Requirements:
+- Fix read/unread updates
+- Fix archived state updates
+- Fix closed state updates if applicable in the current thread workflow
+- Ensure changes persist in DB and UI
+- Ensure mailbox sync does not immediately overwrite user changes incorrectly
+
+H. Open Mail default filter
+Add a new default inbox filter called:
+- Open Mail
+
+Definition:
+- not archived
+- not closed
+
+Requirements:
+- Make Open Mail the default inbox filter/view
+- Keep other filters available if already present
+- Ensure inbox triage defaults to actionable work only
+
+==================================================
+2. PERSONAL MAILBOX UX + RBAC
+==================================================
+
+A. Move personal mailbox setup
+Current behavior is wrong:
+- user personal mailbox setup is in Admin
+
+Requirements:
+- Move the ability for a user to add/connect their personal mailbox from Admin to the user menu
+- This is a user-level setting, not a system admin function
+- Keep shared mailbox management in Admin
+- Use delegated OAuth flow for personal mailboxes
+- Store mailbox ownership against the current user
+
+B. RBAC for Admin visibility
+Requirements:
+- Add/complete RBAC so Admin is hidden in navigation for users without admin rights
+- Enforce RBAC in:
+  - frontend navigation
+  - frontend route guards if applicable
+  - backend APIs
+- Non-admin users must not be able to access admin features even by URL
+- Admin should remain for true admin functions only, such as:
+  - mailbox configuration
+  - imports
+  - system settings
+  - type configuration
+
+==================================================
+3. CONTACT CREATION, ENRICHMENT, AND LINKING
+==================================================
+
+A. Inline contact creation during linking
+Requirements:
+- If a contact does not exist during a linking workflow, allow inline creation of a new contact
+- Do not force the user to leave the current workflow
+- Apply this where it makes sense:
+  - linking from threads
+  - linking from issues
+  - linking from tasks
+  - other entity linking UIs
+
+B. Unknown sender contact flow
+When an email is received from an unknown contact, prompt the user with options:
+- Create Contact
+- Link Existing Contact
+- Ignore for now
+
+Requirements:
+- Pre-fill known data from sender/email
+- Keep the UX lightweight and fast
+
+C. Scrape additional details from email
+When prompting to create a new contact from an email, try to extract useful information from the email itself.
+
+Attempt to detect:
+- phone number
+- alternate phone number
+- role/title
+- company name
+- alternate email
+- signature block details
+- other obvious structured details if available
+
+Requirements:
+- Show these as suggested fields in the create-contact UI
+- Let the user accept/edit/reject before saving
+- Use lightweight parsing heuristics; do not overcomplicate with AI unless already present
+
+D. Auto-link historical activity when creating a contact
+When a new contact is created, ensure past matching activity gets linked.
+
+Auto-link or suggest linking for:
+- existing email threads
+- messages
+- issues
+- tasks
+- associations
+- units
+- any other relevant linked operational records
+
+Matching signals:
+- normalized email
+- normalized phone
+- optionally lower-confidence name similarity for review flows
+
+Requirements:
+- Auto-link high-confidence matches
+- Present ambiguous matches for confirmation
+- Avoid duplicate links
+
+E. Contact interaction history
+On the contact detail page, show a history of interactions.
+
+Include:
+- threads
+- messages/emails
+- issues
+- tasks
+- associations
+- units
+- calls later if supported
+
+Keep the UI clean and useful for operational context.
+
+F. Remove contact-page import
+Requirements:
+- Remove import from the contact page
+- Import should live only in Admin
+
+==================================================
+4. CREATE/LINKING IMPROVEMENTS ACROSS ENTITIES
+==================================================
+
+When creating an issue or other records, allow linking to related entities during creation.
+
+Requirements:
+- On issue creation, allow linking to:
+  - contacts
+  - associations
+  - units
+  - threads when applicable
+- On task creation, allow linking to:
+  - issues
+  - threads
+  - associations
+  - units
+  - contacts when appropriate
+- On other create flows, expose sensible linking options
+- Reuse existing search/autocomplete patterns where possible
+
+Also add or improve merge support where needed.
+
+Requirements:
+- Ensure there is a path to merge duplicate contacts
+- Ensure there is a path to merge duplicate issues
+- Preserve linked records during merge:
+  - threads
+  - tasks
+  - contacts
+  - associations
+  - units
+  - notes/history if present
+- If full merge UI already exists partially, finish it and harden it
+- If not, implement a minimal but safe merge flow
+
+==================================================
+5. GLOBAL SEARCH UX IMPROVEMENT
+==================================================
+
+Requirements:
+- Keep the existing key shortcut behavior (Cmd/Ctrl + K if already implemented)
+- Add a visible global search bar in the UI as well
+- Search should cover:
+  - threads
+  - issues
+  - contacts
+  - tasks
+  - associations
+  - units
+- Results should be grouped and fast
+- Keep the UX clean and minimal
+
+==================================================
+6. IMPLEMENTATION NOTES
+==================================================
+
+Data model / migrations:
+Add or update schema as needed for:
+- mailbox-specific signatures
+- mailbox ownership/access rules if missing
+- admin/user roles if missing or incomplete
+- any new linking or merge support tables/logs if needed
+
+API / services:
+Keep domain isolation and add/update services/endpoints cleanly.
+Likely touched domains:
+- mailboxes
+- messages
+- threads
+- contacts
+- issues
+- tasks
+- associations
+- units
+- auth/permissions
+
+Frontend:
+Update:
+- user menu
+- inbox/thread view
+- compose email modal/page
+- contact detail page
+- create/linking modals
+- main navigation/search
+- admin visibility based on role
+
+Testing / validation:
+After implementation, test these flows end-to-end:
+1. Connect personal mailbox from user menu
+2. Hide Admin for non-admin user
+3. Send new email from chosen mailbox
+4. Reply and reply all from chosen mailbox
+5. Subject remains correct on new email
+6. To/CC/BCC autocomplete finds contacts
+7. Signature applies per mailbox
+8. Delete email from personal mailbox
+9. Mark email read/unread/archive/close successfully
+10. Open Mail is default inbox view
+11. Create contact from unknown sender
+12. Scrape phone/title/company from email into contact prompt
+13. Auto-link historical activity when contact is created
+14. Contact detail shows interaction history
+15. Create issue with association/unit/contact linking
+16. Merge duplicate contacts/issues without losing relationships
+
+Output expectations:
+- Implement the features directly in the codebase
+- Add migrations where needed
+- Keep code clean and production-oriented
+- Preserve existing architecture
+- After coding, summarize:
+  - schema changes
+  - backend routes/services changed
+  - frontend pages/components changed
+  - any follow-up items still recommended

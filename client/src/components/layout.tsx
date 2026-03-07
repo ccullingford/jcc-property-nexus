@@ -30,11 +30,17 @@ import {
 } from "@/components/ui/popover";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Sun, Moon, Sparkles, Bell } from "lucide-react";
+import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Sun, Moon, Sparkles, Bell, Search, PenLine, X, Plus, Trash2 } from "lucide-react";
 import { CommandPalette } from "@/components/command-palette";
 import { GlobalCreateMenu } from "@/components/global-create-menu";
 import { apiRequest } from "@/lib/queryClient";
-import type { Notification } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import type { Notification, MailboxSignature, Mailbox } from "@shared/schema";
 
 const navItems = [
   { title: "Inbox", url: "/inbox", icon: Inbox },
@@ -48,6 +54,9 @@ const navItems = [
 
 function AppSidebar() {
   const [location] = useLocation();
+  const { data: user } = useUser();
+  const isAdminOrManager = user?.role === "admin" || user?.role === "manager";
+  const visibleNavItems = navItems.filter(item => item.title !== "Admin" || isAdminOrManager);
 
   return (
     <Sidebar>
@@ -59,7 +68,7 @@ function AppSidebar() {
           </div>
           <SidebarGroupContent className="mt-2">
             <SidebarMenu>
-              {navItems.map((item) => (
+              {visibleNavItems.map((item) => (
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
@@ -192,6 +201,8 @@ function Header() {
   const logout = useLogout();
   const { theme, setTheme } = useTheme();
   const [, navigate] = useLocation();
+  const [signatureOpen, setSignatureOpen] = useState(false);
+  const [personalMailboxOpen, setPersonalMailboxOpen] = useState(false);
 
   const { data: unreadData } = useQuery<{ count: number }>({
     queryKey: ["/api/whats-new/unread-count"],
@@ -208,19 +219,29 @@ function Header() {
 
   if (!user) return null;
 
+  function triggerSearch() {
+    const isMac = navigator.platform.toUpperCase().includes("MAC");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: !isMac, metaKey: isMac, bubbles: true }));
+  }
+
   return (
     <header
       className="h-14 border-b border-border flex items-center justify-between px-4 bg-background shrink-0"
       data-testid="app-header"
     >
-      <div className="flex items-center gap-2">
-        <span className="text-xs text-muted-foreground hidden sm:block">
-          Press{" "}
-          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+      <div className="flex items-center flex-1 max-w-sm">
+        <button
+          type="button"
+          onClick={triggerSearch}
+          className="flex items-center gap-2 h-8 w-full max-w-xs rounded-md border border-input bg-muted/40 px-3 text-sm text-muted-foreground hover:bg-muted/60 transition-colors"
+          data-testid="button-search-bar"
+        >
+          <Search className="h-3.5 w-3.5 shrink-0" />
+          <span className="flex-1 text-left text-xs">Search…</span>
+          <kbd className="pointer-events-none hidden sm:inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-background px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
             <span className="text-xs">⌘</span>K
-          </kbd>{" "}
-          to search
-        </span>
+          </kbd>
+        </button>
       </div>
       <div className="flex items-center gap-2">
         <GlobalCreateMenu />
@@ -264,6 +285,22 @@ function Header() {
               )}
             </DropdownMenuItem>
             <DropdownMenuItem
+              onClick={() => setSignatureOpen(true)}
+              className="cursor-pointer"
+              data-testid="button-signature-settings"
+            >
+              <PenLine className="mr-2 h-4 w-4" />
+              Signature Settings
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onClick={() => setPersonalMailboxOpen(true)}
+              className="cursor-pointer"
+              data-testid="button-personal-mailbox"
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              Personal Mailbox
+            </DropdownMenuItem>
+            <DropdownMenuItem
               onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
               className="cursor-pointer"
               data-testid="button-toggle-theme"
@@ -288,7 +325,230 @@ function Header() {
         </DropdownMenu>
       </div>
       <CommandPalette />
+      <SignatureSettingsDialog open={signatureOpen} onClose={() => setSignatureOpen(false)} userId={user.id} userName={user.name} />
+      <PersonalMailboxDialog open={personalMailboxOpen} onClose={() => setPersonalMailboxOpen(false)} userId={user.id} />
     </header>
+  );
+}
+
+// ─── Signature Settings Dialog ────────────────────────────────────────────────
+function SignatureSettingsDialog({ open, onClose, userId, userName }: { open: boolean; onClose: () => void; userId: number; userName: string }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [newBody, setNewBody] = useState("");
+  const [newMailboxId, setNewMailboxId] = useState<string>("__default__");
+  const [creating, setCreating] = useState(false);
+
+  const { data: signatures = [] } = useQuery<MailboxSignature[]>({
+    queryKey: ["/api/signatures"],
+    enabled: open,
+  });
+
+  const { data: mailboxes = [] } = useQuery<Mailbox[]>({
+    queryKey: ["/api/mailboxes"],
+    enabled: open,
+  });
+
+  const saveMutation = useMutation({
+    mutationFn: ({ id, body }: { id: number; body: string }) =>
+      apiRequest("PUT", `/api/signatures/${id}`, { body }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/signatures"] });
+      setEditingId(null);
+      toast({ title: "Signature saved" });
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: ({ body, mailboxId }: { body: string; mailboxId?: number }) =>
+      apiRequest("POST", "/api/signatures", { body, mailboxId }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/signatures"] });
+      setNewBody("");
+      setNewMailboxId("__default__");
+      setCreating(false);
+      toast({ title: "Signature created" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/signatures/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/signatures"] });
+      toast({ title: "Signature deleted" });
+    },
+  });
+
+  const getMailboxLabel = (mailboxId: number | null) => {
+    if (!mailboxId) return "Default (all mailboxes)";
+    const mb = mailboxes.find(m => m.id === mailboxId);
+    return mb ? (mb.microsoftMailboxId ?? mb.name) : `Mailbox #${mailboxId}`;
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Signature Settings</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <p className="text-xs text-muted-foreground">Configure your email signatures. You can have one default signature and additional signatures per mailbox.</p>
+
+          {signatures.length === 0 && !creating && (
+            <div className="text-center py-4 text-sm text-muted-foreground">No signatures configured yet.</div>
+          )}
+
+          {signatures.map((sig) => (
+            <div key={sig.id} className="border border-border rounded-md p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-muted-foreground">{getMailboxLabel(sig.mailboxId)}</span>
+                <div className="flex gap-1">
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={() => { setEditingId(sig.id); setEditBody(sig.body); }}>
+                    <PenLine className="h-3 w-3" />
+                  </Button>
+                  <Button size="sm" variant="ghost" className="h-6 w-6 p-0 text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate(sig.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              </div>
+              {editingId === sig.id ? (
+                <div className="space-y-2">
+                  <Textarea value={editBody} onChange={e => setEditBody(e.target.value)} rows={4} className="text-sm resize-none" />
+                  <div className="flex gap-2 justify-end">
+                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>Cancel</Button>
+                    <Button size="sm" onClick={() => saveMutation.mutate({ id: sig.id, body: editBody })} disabled={saveMutation.isPending}>Save</Button>
+                  </div>
+                </div>
+              ) : (
+                <pre className="text-xs text-foreground whitespace-pre-wrap font-sans bg-muted/30 rounded p-2">{sig.body}</pre>
+              )}
+            </div>
+          ))}
+
+          {creating ? (
+            <div className="border border-border rounded-md p-3 space-y-2">
+              <div className="space-y-1.5">
+                <Label className="text-xs">Mailbox</Label>
+                <Select value={newMailboxId} onValueChange={setNewMailboxId}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">Default (all mailboxes)</SelectItem>
+                    {mailboxes.map(m => (
+                      <SelectItem key={m.id} value={String(m.id)}>{m.microsoftMailboxId ?? m.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <Textarea value={newBody} onChange={e => setNewBody(e.target.value)} placeholder={`Best,\n${userName}`} rows={4} className="text-sm resize-none" />
+              <div className="flex gap-2 justify-end">
+                <Button size="sm" variant="outline" onClick={() => setCreating(false)}>Cancel</Button>
+                <Button size="sm" onClick={() => createMutation.mutate({ body: newBody, mailboxId: newMailboxId !== "__default__" ? Number(newMailboxId) : undefined })} disabled={createMutation.isPending || !newBody.trim()}>
+                  Save Signature
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button size="sm" variant="outline" className="w-full gap-1.5" onClick={() => setCreating(true)}>
+              <Plus className="h-3.5 w-3.5" />Add Signature
+            </Button>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ─── Personal Mailbox Dialog ───────────────────────────────────────────────────
+function PersonalMailboxDialog({ open, onClose, userId }: { open: boolean; onClose: () => void; userId: number }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+
+  const { data: allMailboxes = [] } = useQuery<Mailbox[]>({
+    queryKey: ["/api/mailboxes"],
+    enabled: open,
+  });
+
+  const personalMailboxes = allMailboxes.filter(m => m.syncMode === "delegated" && m.ownerUserId === userId);
+
+  const createMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/mailboxes", {
+      name: name || email,
+      type: "personal",
+      syncMode: "delegated",
+      microsoftMailboxId: email,
+      ownerUserId: userId,
+      isDefault: false,
+      autoSyncEnabled: true,
+      syncHistoryDays: 30,
+      includeSentMail: true,
+      autoSyncIntervalMinutes: 5,
+    }).then(r => r.json()),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mailboxes"] });
+      setName("");
+      setEmail("");
+      toast({ title: "Personal mailbox added" });
+    },
+    onError: (err: Error) => toast({ title: "Failed to add mailbox", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/mailboxes/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/mailboxes"] });
+      toast({ title: "Mailbox removed" });
+    },
+    onError: (err: Error) => toast({ title: "Failed to remove mailbox", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Personal Mailbox</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <p className="text-xs text-muted-foreground">Connect your personal email account to send and receive from Nexus. Note: the mailbox must be accessible through your Microsoft 365 account.</p>
+
+          {personalMailboxes.length > 0 && (
+            <div className="space-y-2">
+              {personalMailboxes.map(m => (
+                <div key={m.id} className="flex items-center justify-between border border-border rounded-md px-3 py-2">
+                  <div>
+                    <p className="text-sm font-medium">{m.name}</p>
+                    <p className="text-xs text-muted-foreground">{m.microsoftMailboxId}</p>
+                  </div>
+                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive hover:text-destructive" onClick={() => deleteMutation.mutate(m.id)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="space-y-3 border-t border-border pt-3">
+            <p className="text-xs font-medium">Add personal mailbox</p>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Email address</Label>
+              <Input value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" className="h-8 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Display name (optional)</Label>
+              <Input value={name} onChange={e => setName(e.target.value)} placeholder="My Email" className="h-8 text-sm" />
+            </div>
+            <Button size="sm" className="w-full" onClick={() => createMutation.mutate()} disabled={!email.trim() || createMutation.isPending}>
+              {createMutation.isPending ? "Adding…" : "Add Mailbox"}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

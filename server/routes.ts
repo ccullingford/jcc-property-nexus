@@ -453,13 +453,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/threads/:id/reply", requireAuth, async (req, res) => {
     try {
       const threadId = Number(req.params.id);
-      const { body, replyAll, to } = req.body as { body: string; replyAll?: boolean; to?: string[] };
+      const { body, replyAll, to, mailboxId: replyMailboxId, replyToMessage } = req.body as {
+        body: string;
+        replyAll?: boolean;
+        to?: string[];
+        mailboxId?: number;
+        replyToMessage?: { senderName?: string; senderEmail?: string; receivedAt?: string; bodyHtml?: string };
+      };
       if (!body?.trim()) return res.status(400).json({ message: "Reply body is required" });
 
       const thread = await storage.getThread(threadId);
       if (!thread) return res.status(404).json({ message: "Thread not found" });
 
-      const mailbox = await storage.getMailbox(thread.mailboxId);
+      const mailboxIdToUse = replyMailboxId ?? thread.mailboxId;
+      const mailbox = await storage.getMailbox(mailboxIdToUse);
       if (!mailbox?.microsoftMailboxId) return res.status(400).json({ message: "Mailbox not configured" });
 
       const allMessages = await storage.getMessagesByThread(threadId);
@@ -481,9 +488,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       const subject = thread.subject.startsWith("Re:") ? thread.subject : `Re: ${thread.subject}`;
 
+      // Build quoted block from the message being replied to
+      let quotedHtml = "";
+      if (replyToMessage) {
+        const dateStr = replyToMessage.receivedAt
+          ? new Date(replyToMessage.receivedAt).toLocaleString("en-US", { dateStyle: "long", timeStyle: "short" })
+          : "";
+        quotedHtml = `<br/><hr style="border:none;border-top:1px solid #ccc;margin:16px 0"/>` +
+          `<div style="color:#666;font-size:13px;margin-bottom:8px">On ${dateStr}, <strong>${replyToMessage.senderName ?? replyToMessage.senderEmail}</strong> wrote:</div>` +
+          `<blockquote style="border-left:3px solid #ccc;padding-left:12px;margin:0;color:#444">${replyToMessage.bodyHtml ?? ""}</blockquote>`;
+      }
+
+      const fullBody = body + quotedHtml;
+
       await sendMail(mailbox.microsoftMailboxId, {
         subject,
-        body: { contentType: "HTML", content: body },
+        body: { contentType: "HTML", content: fullBody },
         toRecipients: recipients,
         conversationId: thread.microsoftThreadId ?? undefined,
       });
@@ -495,13 +515,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const savedMsg = await storage.createMessage({
         threadId,
         microsoftMessageId: null,
-        senderEmail: mailbox.microsoftMailboxId,
+        senderEmail: mailbox.microsoftMailboxId!,
         senderName: user?.name ?? "Me",
         recipients: recipients.map(r => r.emailAddress.address),
         subject,
         bodyPreview: body.replace(/<[^>]+>/g, "").slice(0, 200),
         bodyText: null,
-        bodyHtml: body,
+        bodyHtml: fullBody,
         receivedAt: now,
         hasAttachments: false,
         isRead: true,
@@ -1450,6 +1470,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       await db.insert(whatsNewReads).values(unread.map(e => ({ userId, whatsNewId: e.id })));
     }
     res.json({ ok: true, marked: unread.length });
+  });
+
+  // ── SIGNATURES ────────────────────────────────────────────────────────────────
+  app.get("/api/signatures", requireAuth, async (req: Request, res: Response) => {
+    const userId = req.session.userId!;
+    const sigs = await storage.getSignaturesByUser(userId);
+    res.json(sigs);
+  });
+
+  app.post("/api/signatures", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { mailboxId, body: sigBody } = req.body;
+      if (!sigBody?.trim()) return res.status(400).json({ message: "Signature body is required" });
+      const sig = await storage.createSignature({ userId, mailboxId: mailboxId ?? null, body: sigBody });
+      res.status(201).json(sig);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message ?? "Failed to create signature" });
+    }
+  });
+
+  app.put("/api/signatures/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId!;
+      const { body: sigBody } = req.body;
+      if (!sigBody?.trim()) return res.status(400).json({ message: "Signature body is required" });
+      const sig = await storage.updateSignature(Number(req.params.id), userId, sigBody);
+      if (!sig) return res.status(404).json({ message: "Signature not found" });
+      res.json(sig);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message ?? "Failed to update signature" });
+    }
+  });
+
+  app.delete("/api/signatures/:id", requireAuth, async (req: Request, res: Response) => {
+    try {
+      await storage.deleteSignature(Number(req.params.id), req.session.userId!);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ message: err.message ?? "Failed to delete signature" });
+    }
   });
 
   app.post("/api/whats-new", requireAuth, async (req: Request, res: Response) => {
