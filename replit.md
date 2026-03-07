@@ -195,6 +195,7 @@ The Azure AD app needs:
 - `/call-pop` — RingEX call pop screen
 
 ## Build Chunks Completed
+- **Chunk 11**: Priority features — Dark mode (ThemeProvider + localStorage + CSS variables in `.dark`, toggle in user menu); Attachment streaming + voicemail MP3 (GET /api/attachments/:id/download proxies Graph API binary, inline audio player for audio/* content, image preview for image/*); Global search command palette (Cmd+K, GET /api/search?q= across contacts/threads/issues/tasks/associations/units, grouped results with navigation); Global create menu ("Create" button in header, dialogs for Issue/Task/Contact with full field support, navigate to Associations page for that entity)
 - **Chunk 10**: 13-fix improvement session — inline thread view in Issues email tab; inbox Inbox/Sent tabs + newest-first messages + color-coded status dots; contacts first/last name auto-populate + mailing address (schema + UI); type_labels table + seeding + admin Types tab (issue/task types — add/edit/toggle/delete) + type selector in create/edit issue/task forms; admin Imports tab (contact CSV + association/unit CSV import); user menu with Connect My Mailbox in layout header
 - **Chunk 1**: Foundation — app shell, schema, users, mailboxes, full DB schema
 - **Chunk 2**: Inbox Read — Microsoft Graph sync service, full inbox UI (thread list + message view), attachments

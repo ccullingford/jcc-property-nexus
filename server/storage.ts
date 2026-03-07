@@ -1,7 +1,7 @@
 import { db } from "./db";
 import {
   users, mailboxes, emailThreads, messages, attachments, contacts, contactPhones,
-  properties, units, issues, tasks, notes, calls, activityLog,
+  contactEmails, associations, properties, units, issues, tasks, notes, calls, activityLog,
   type User, type InsertUser,
   type Mailbox, type InsertMailbox,
   type EmailThread, type InsertEmailThread,
@@ -41,6 +41,15 @@ export interface ThreadFilters {
   sentOnly?: boolean;
 }
 
+export interface GlobalSearchResults {
+  contacts: { id: number; displayName: string; contactType: string | null }[];
+  threads: { id: number; subject: string; status: string }[];
+  issues: { id: number; title: string; status: string }[];
+  tasks: { id: number; title: string; status: string }[];
+  associations: { id: number; name: string }[];
+  units: { id: number; unitNumber: string; associationName: string | null }[];
+}
+
 export type MessageWithAttachments = Message & {
   attachments: Attachment[];
 };
@@ -73,6 +82,10 @@ export interface IStorage {
   getMessagesByThread(threadId: number): Promise<MessageWithAttachments[]>;
   createMessage(message: InsertMessage): Promise<Message>;
   createAttachment(attachment: InsertAttachment): Promise<Attachment>;
+  getAttachmentWithMailbox(attachmentId: number): Promise<{ attachment: Attachment; microsoftMessageId: string; mailboxEmail: string } | undefined>;
+
+  // Search
+  globalSearch(q: string, limit?: number): Promise<GlobalSearchResults>;
 
   // Contacts
   getContacts(): Promise<Contact[]>;
@@ -231,6 +244,64 @@ export class DatabaseStorage implements IStorage {
 
   async createMessage(m: InsertMessage) { const [r] = await db.insert(messages).values(m).returning(); return r; }
   async createAttachment(a: InsertAttachment) { const [r] = await db.insert(attachments).values(a).returning(); return r; }
+
+  async getAttachmentWithMailbox(attachmentId: number) {
+    const [row] = await db
+      .select({
+        attachment: attachments,
+        microsoftMessageId: messages.microsoftMessageId,
+        mailboxEmail: mailboxes.microsoftMailboxId,
+      })
+      .from(attachments)
+      .innerJoin(messages, eq(messages.id, attachments.messageId))
+      .innerJoin(emailThreads, eq(emailThreads.id, messages.threadId))
+      .innerJoin(mailboxes, eq(mailboxes.id, emailThreads.mailboxId))
+      .where(eq(attachments.id, attachmentId));
+    if (!row || !row.microsoftMessageId || !row.mailboxEmail) return undefined;
+    return { attachment: row.attachment, microsoftMessageId: row.microsoftMessageId, mailboxEmail: row.mailboxEmail };
+  }
+
+  async globalSearch(q: string, limit = 5): Promise<GlobalSearchResults> {
+    const pattern = `%${q}%`;
+    const [contactRows, threadRows, issueRows, taskRows, assocRows, unitRows] = await Promise.all([
+      db.select({ id: contacts.id, displayName: contacts.displayName, contactType: contacts.contactType })
+        .from(contacts)
+        .where(ilike(contacts.displayName, pattern))
+        .limit(limit),
+      db.select({ id: emailThreads.id, subject: emailThreads.subject, status: emailThreads.status })
+        .from(emailThreads)
+        .where(ilike(emailThreads.subject, pattern))
+        .orderBy(desc(emailThreads.lastMessageAt))
+        .limit(limit),
+      db.select({ id: issues.id, title: issues.title, status: issues.status })
+        .from(issues)
+        .where(ilike(issues.title, pattern))
+        .orderBy(desc(issues.createdAt))
+        .limit(limit),
+      db.select({ id: tasks.id, title: tasks.title, status: tasks.status })
+        .from(tasks)
+        .where(ilike(tasks.title, pattern))
+        .orderBy(desc(tasks.createdAt))
+        .limit(limit),
+      db.select({ id: associations.id, name: associations.name })
+        .from(associations)
+        .where(ilike(associations.name, pattern))
+        .limit(limit),
+      db.select({ id: units.id, unitNumber: units.unitNumber, associationName: associations.name })
+        .from(units)
+        .leftJoin(associations, eq(associations.id, units.associationId))
+        .where(ilike(units.unitNumber, pattern))
+        .limit(limit),
+    ]);
+    return {
+      contacts: contactRows,
+      threads: threadRows,
+      issues: issueRows,
+      tasks: taskRows,
+      associations: assocRows,
+      units: unitRows,
+    };
+  }
 
   // Contacts
   async getContacts() { return db.select().from(contacts); }

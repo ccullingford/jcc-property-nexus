@@ -1,7 +1,7 @@
 import { ReactNode } from "react";
 import { Link, useLocation } from "wouter";
 import { useUser, useLogout } from "@/hooks/use-auth";
-import { useMailboxes } from "@/hooks/use-mailboxes";
+import { useTheme } from "@/hooks/use-theme";
 import {
   Sidebar,
   SidebarContent,
@@ -22,7 +22,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Mail, ExternalLink } from "lucide-react";
+import { Loader2, Inbox, CheckSquare, AlertCircle, Users, Building2, Phone, Settings, LogOut, Sun, Moon } from "lucide-react";
+import { CommandPalette } from "@/components/command-palette";
+import { GlobalCreateMenu } from "@/components/global-create-menu";
 
 const navItems = [
   { title: "Inbox", url: "/inbox", icon: Inbox },
@@ -72,6 +74,7 @@ function AppSidebar() {
 function Header() {
   const { data: user } = useUser();
   const logout = useLogout();
+  const { theme, setTheme } = useTheme();
 
   if (!user) return null;
 
@@ -80,9 +83,17 @@ function Header() {
       className="h-14 border-b border-border flex items-center justify-between px-4 bg-background shrink-0"
       data-testid="app-header"
     >
-      <div />
-      <div className="flex items-center gap-3">
-        <span className="text-sm text-muted-foreground hidden sm:block">{user.name}</span>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground hidden sm:block">
+          Press{" "}
+          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border border-border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+            <span className="text-xs">⌘</span>K
+          </kbd>{" "}
+          to search
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        <GlobalCreateMenu />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -108,6 +119,19 @@ function Header() {
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              className="cursor-pointer"
+              data-testid="button-toggle-theme"
+            >
+              {theme === "dark" ? (
+                <Sun className="mr-2 h-4 w-4" />
+              ) : (
+                <Moon className="mr-2 h-4 w-4" />
+              )}
+              {theme === "dark" ? "Light mode" : "Dark mode"}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
               className="text-destructive focus:bg-destructive/10 cursor-pointer"
               onClick={() => logout.mutate()}
               data-testid="button-logout"
@@ -118,6 +142,7 @@ function Header() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      <CommandPalette />
     </header>
   );
 }

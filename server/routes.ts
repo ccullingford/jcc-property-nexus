@@ -34,7 +34,7 @@ import { getIssueTimeline } from "./services/issueTimelineService";
 import { getNotesByIssueWithUsers } from "./services/threadWorkflowService";
 import expressSession from "express-session";
 import { syncMailbox } from "./services/syncService";
-import { isGraphConfigured, sendMail } from "./services/graphService";
+import { isGraphConfigured, sendMail, fetchAttachmentContent } from "./services/graphService";
 import { findContactByEmail } from "./services/contactIdentityService";
 import type { ThreadFilters } from "./storage";
 import {
@@ -1190,6 +1190,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
     await storage.deleteTypeLabel(id);
     res.status(204).end();
+  });
+
+  // ─── Attachment Download ───────────────────────────────────────────────────
+  app.get("/api/attachments/:id/download", requireAuth, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id) || id < 1) return res.status(400).json({ message: "Invalid attachment id" });
+      const result = await storage.getAttachmentWithMailbox(id);
+      if (!result) return res.status(404).json({ message: "Attachment not found" });
+      const { attachment, microsoftMessageId, mailboxEmail } = result;
+      if (!attachment.microsoftAttachmentId) return res.status(404).json({ message: "No Microsoft attachment ID stored" });
+      const { buffer, contentType } = await fetchAttachmentContent(mailboxEmail, microsoftMessageId, attachment.microsoftAttachmentId);
+      const safeFilename = encodeURIComponent(attachment.filename ?? "file");
+      res.set("Content-Type", contentType || attachment.contentType || "application/octet-stream");
+      res.set("Content-Disposition", `inline; filename="${safeFilename}"`);
+      res.set("Cache-Control", "private, max-age=3600");
+      res.send(buffer);
+    } catch (err: any) {
+      console.error("[attachment download]", err.message);
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ─── Global Search ─────────────────────────────────────────────────────────
+  app.get("/api/search", requireAuth, async (req, res) => {
+    try {
+      const q = ((req.query.q as string) ?? "").trim();
+      if (q.length < 2) return res.json({ contacts: [], threads: [], issues: [], tasks: [], associations: [], units: [] });
+      const limit = Math.min(parseInt((req.query.limit as string) ?? "5") || 5, 20);
+      const results = await storage.globalSearch(q, limit);
+      res.json(results);
+    } catch (err: any) {
+      console.error("[search]", err.message);
+      res.status(500).json({ message: err.message });
+    }
   });
 
   // ─── Graph Status ─────────────────────────────────────────────────────────

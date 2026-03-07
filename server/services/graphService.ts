@@ -344,6 +344,29 @@ export async function fetchMessageAttachments(
 }
 
 /**
+ * Stream attachment binary content for a specific message attachment.
+ */
+export async function fetchAttachmentContent(
+  mailboxAddress: string,
+  messageId: string,
+  attachmentId: string,
+  token?: string
+): Promise<{ buffer: Buffer; contentType: string }> {
+  const resolvedToken = token ?? await getSyncToken();
+  const path = `/users/${encodeURIComponent(mailboxAddress)}/messages/${messageId}/attachments/${attachmentId}/$value`;
+  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    headers: { Authorization: `Bearer ${resolvedToken}` },
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    throw new Error(`fetchAttachmentContent ${res.status}: ${errText.slice(0, 200)}`);
+  }
+  const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+  const buffer = Buffer.from(await res.arrayBuffer());
+  return { buffer, contentType };
+}
+
+/**
  * Test connectivity to a mailbox.
  */
 export async function testMailboxAccess(mailboxAddress: string): Promise<boolean> {

@@ -1,0 +1,71 @@
+Address the current highest-priority remaining Nexus items.
+
+Priority order:
+1. Email attachment handling with inline voicemail MP3 streaming
+2. Draft new email flow
+3. Dark mode in user menu
+4. Global search across major entities
+5. Global create menu
+6. Improved unknown contact workflow
+7. Duplicate contact detection and merge
+8. Notifications system
+9. Next thread workflow
+10. Better call-pop setup instructions
+
+Requirements:
+
+## 1. Attachments + voicemail streaming
+- Show attachment filename, type, and size
+- Support preview for images and PDFs
+- Support download for other files
+- Support inline MP3 playback for RingCentral voicemail attachments
+- Stream attachments through backend routes, not directly from Microsoft Graph in the browser
+
+## 2. Draft new email
+- Add compose new email flow
+- Allow sender mailbox selection where permitted
+- Support to/cc/bcc, subject, body, attachments
+- Support save draft and send
+- Ensure sent mail appears correctly in thread history
+
+## 3. Dark mode
+- Add Appearance control in top-right user menu
+- Persist per user
+- Apply to full app UI
+
+## 4. Global search
+- Search threads, issues, contacts, tasks, associations, and units
+- Return grouped results
+- Keep implementation clean and performant
+
+## 5. Global create
+- Add + Create menu accessible from anywhere
+- Support creating issue, task, contact, association, unit, and email
+
+## 6. Unknown contact flow
+- When no contact is matched, show create/search/ignore actions
+- Prefill available sender details
+
+## 7. Duplicate contact management
+- Detect likely duplicates by normalized email/phone and similar names
+- Add safe merge flow
+- Preserve relationships to threads, tasks, issues, notes, and units/associations
+
+## 8. Notifications
+- Add notification bell with unread count
+- Notify for task assignment, issue assignment/update, and note mentions
+- Support read/unread state
+
+## 9. Next thread workflow
+- Add a next unresolved thread action
+- Improve queue processing flow
+
+## 10. Call-pop instructions
+- Add a clear setup/help page with copy-paste examples and troubleshooting steps
+
+General requirements:
+- Keep React frontend, Node backend, Postgres database
+- Use migrations for schema changes
+- Do not rebuild completed chunk functionality
+- Keep architecture portable
+- Summarize schema, API, and UI changes clearly

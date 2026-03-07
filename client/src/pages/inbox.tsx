@@ -595,15 +595,59 @@ function MessageCard({
       {message.attachments.length > 0 && (
         <div className="px-4 pb-4 pt-0 border-t border-border mt-0">
           <p className="text-xs font-medium text-muted-foreground mb-2 pt-3">Attachments ({message.attachments.length})</p>
-          <div className="flex flex-wrap gap-2">
-            {message.attachments.map(att => (
-              <div key={att.id} className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-secondary/50 text-xs" data-testid={`attachment-${att.id}`}>
-                <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <span className="text-foreground font-medium truncate max-w-[200px]">{att.filename}</span>
-                {att.sizeBytes && <span className="text-muted-foreground shrink-0">{formatBytes(att.sizeBytes)}</span>}
-                {att.contentType && <span className="text-muted-foreground/60 uppercase shrink-0">{att.contentType.split("/").pop()}</span>}
-              </div>
-            ))}
+          <div className="flex flex-col gap-3">
+            {message.attachments.map(att => {
+              const downloadUrl = `/api/attachments/${att.id}/download`;
+              const isAudio = att.contentType?.startsWith("audio/") || att.filename?.toLowerCase().endsWith(".mp3");
+              const isImage = att.contentType?.startsWith("image/");
+              return (
+                <div key={att.id} className="rounded-md border border-border bg-secondary/50 overflow-hidden" data-testid={`attachment-${att.id}`}>
+                  {isAudio && (
+                    <div className="px-3 pt-3">
+                      <audio controls className="w-full h-8" preload="metadata" src={downloadUrl}>
+                        Your browser does not support audio playback.
+                      </audio>
+                    </div>
+                  )}
+                  {isImage && (
+                    <a href={downloadUrl} target="_blank" rel="noopener noreferrer">
+                      <img
+                        src={downloadUrl}
+                        alt={att.filename ?? "attachment"}
+                        className="max-w-full max-h-48 object-contain block"
+                        loading="lazy"
+                      />
+                    </a>
+                  )}
+                  <div className="flex items-center gap-2 px-3 py-2 text-xs">
+                    <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <a
+                      href={downloadUrl}
+                      download={att.filename ?? "file"}
+                      className="text-foreground font-medium truncate max-w-[200px] hover:underline"
+                      data-testid={`attachment-download-${att.id}`}
+                    >
+                      {att.filename}
+                    </a>
+                    {att.sizeBytes && <span className="text-muted-foreground shrink-0">{formatBytes(att.sizeBytes)}</span>}
+                    {att.contentType && (
+                      <span className="text-muted-foreground/60 uppercase shrink-0">
+                        {att.contentType.split("/").pop()}
+                      </span>
+                    )}
+                    <a
+                      href={downloadUrl}
+                      download={att.filename ?? "file"}
+                      className="ml-auto text-muted-foreground hover:text-foreground shrink-0"
+                      aria-label="Download"
+                      data-testid={`attachment-download-btn-${att.id}`}
+                    >
+                      ↓
+                    </a>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
