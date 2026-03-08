@@ -211,6 +211,46 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           howToUse: "Forward: click the Forward button in any thread. Signatures: configure in avatar menu → Signature Settings — they appear automatically when composing or replying. Read tracking is automatic when you open a thread.",
           isActive: true,
         },
+        {
+          releaseVersion: "1.5.0",
+          title: "Unit & Contact Context on Issues and Tasks",
+          type: "feature",
+          description: "Issues and tasks can now be linked to an association, unit, and contact. When creating an issue or task from within an email thread, Nexus automatically pre-fills the contact, association, and unit based on the thread's linked contact — no manual selection needed.",
+          howToUse: "Open any email thread, click the Issues or Tasks tab in the right panel, and create a new item. The contact and association/unit fields will be pre-filled. You can adjust them before saving.",
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.5.0",
+          title: "Keyboard Shortcuts in Inbox",
+          type: "feature",
+          description: "Power users can now navigate and act on email threads without reaching for the mouse. While viewing a thread, press R to reply, A to reply-all, F to forward, I to create an issue, T to create a task, or N to jump to the next thread. Cmd/Ctrl+Enter sends the current composition.",
+          howToUse: "Open a thread in the inbox. Shortcuts are active whenever your cursor is not inside a text field. A shortcut legend is shown in the thread header for quick reference.",
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.5.0",
+          title: "Issues & Tasks on Association/Unit Pages",
+          type: "improvement",
+          description: "The Associations page now shows linked issues and tasks directly on each association and unit. Expand any association to see its open issues and tasks. Expand a unit to see issues and tasks scoped to that specific unit.",
+          howToUse: "Go to Associations, select an association, and scroll down to the Issues and Tasks sections. Click into any unit to see its own issues and tasks.",
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.5.0",
+          title: "Richer Contact Search Results",
+          type: "improvement",
+          description: "Contact autocomplete dropdowns across the app now show the contact's association, email address, and phone number alongside their name, making it much easier to identify the right contact when multiple people share similar names.",
+          howToUse: "Start typing in any contact or To/Cc/Bcc field. The dropdown will show a richer card for each result.",
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.5.0",
+          title: "Filter Inbox by Association",
+          type: "improvement",
+          description: "The inbox filter panel now includes an Association filter. Select an association to view only threads linked to contacts or issues belonging to that association.",
+          howToUse: "In the inbox, open the filter panel and choose an association from the new Association dropdown.",
+          isActive: true,
+        },
       ];
 
       for (const entry of entries) {
@@ -1075,7 +1115,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── Issues ───────────────────────────────────────────────────────────────
   app.get(api.issues.list.path, async (req, res) => {
     try {
-      const { status, priority, openOnly, closedOnly, contactId, associationId } = req.query;
+      const { status, priority, openOnly, closedOnly, contactId, associationId, unitId } = req.query;
       const results = await listIssues({
         status: typeof status === 'string' ? status : undefined,
         priority: typeof priority === 'string' ? priority : undefined,
@@ -1083,6 +1123,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         closedOnly: closedOnly === 'true',
         contactId: typeof contactId === 'string' ? Number(contactId) : undefined,
         associationId: typeof associationId === 'string' ? Number(associationId) : undefined,
+        unitId: typeof unitId === 'string' ? Number(unitId) : undefined,
       });
       res.json(results);
     } catch (err: any) {
@@ -1278,12 +1319,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ─── Tasks ────────────────────────────────────────────────────────────────
   app.get(api.tasks.list.path, async (req, res) => {
     try {
-      const { assignedToMe, overdue, status, contactId } = req.query;
-      const options: { assignedUserId?: number; overdue?: boolean; status?: string; contactId?: number } = {};
+      const { assignedToMe, overdue, status, contactId, associationId, unitId } = req.query;
+      const options: { assignedUserId?: number; overdue?: boolean; status?: string; contactId?: number; associationId?: number; unitId?: number } = {};
       if (assignedToMe === "true") options.assignedUserId = req.session.userId!;
       if (overdue === "true") options.overdue = true;
       if (typeof status === "string" && status) options.status = status;
       if (typeof contactId === "string" && contactId) options.contactId = Number(contactId);
+      if (typeof associationId === "string" && associationId) options.associationId = Number(associationId);
+      if (typeof unitId === "string" && unitId) options.unitId = Number(unitId);
       res.json(await storage.getTasksFiltered(options));
     } catch (err: any) {
       res.status(500).json({ message: err.message });

@@ -16,7 +16,11 @@ export interface CreateTaskInput {
   assignedUserId?: number | null;
   threadId?: number | null;
   issueId?: number | null;
+  contactId?: number | null;
+  associationId?: number | null;
+  unitId?: number | null;
   priority?: string;
+  taskType?: string | null;
   dueDate?: Date | string | null;
 }
 
@@ -31,9 +35,13 @@ export async function createTask(
     assignedUserId: input.assignedUserId ?? null,
     threadId: input.threadId ?? null,
     issueId: input.issueId ?? null,
+    contactId: input.contactId ?? null,
+    associationId: input.associationId ?? null,
+    unitId: input.unitId ?? null,
     createdByUserId,
     status: "Open",
     priority: input.priority ?? "Normal",
+    taskType: input.taskType ?? "General",
     dueDate: input.dueDate ? new Date(input.dueDate as string) : null,
   });
 
@@ -77,6 +85,10 @@ export async function updateTask(
   if (updates.assignedUserId !== undefined) patch.assignedUserId = updates.assignedUserId;
   if (updates.threadId !== undefined) patch.threadId = updates.threadId;
   if (updates.issueId !== undefined) patch.issueId = updates.issueId;
+  if (updates.contactId !== undefined) patch.contactId = updates.contactId;
+  if (updates.associationId !== undefined) patch.associationId = updates.associationId;
+  if (updates.unitId !== undefined) patch.unitId = updates.unitId;
+  if (updates.taskType !== undefined) patch.taskType = updates.taskType;
   if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate ? new Date(updates.dueDate as string) : null;
 
   if (updates.priority !== undefined) {

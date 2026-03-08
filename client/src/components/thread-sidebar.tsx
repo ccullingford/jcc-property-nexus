@@ -17,7 +17,7 @@ import {
   CheckCircle2, XCircle, Clock, AlertTriangle, Calendar,
   Users, Search, Link2, Unlink, X, AlertCircle, Building2, MapPin,
 } from "lucide-react";
-import type { User as UserType, TypeLabel } from "@shared/schema";
+import type { User as UserType, TypeLabel, Association, Unit, Contact } from "@shared/schema";
 import type { NoteWithUser, ActivityWithUser, TaskWithMeta, ContactWithDetails, ThreadContactWithContact, IssueWithDetails } from "@shared/routes";
 import { TASK_STATUSES, TASK_PRIORITIES, ISSUE_PRIORITIES } from "@shared/routes";
 
@@ -171,9 +171,12 @@ interface CreateTaskDialogProps {
   threadId: number;
   defaultTitle: string;
   users: UserType[] | undefined;
+  defaultContactId?: number | null;
+  defaultAssociationId?: number | null;
+  defaultUnitId?: number | null;
 }
 
-function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: CreateTaskDialogProps) {
+function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users, defaultContactId, defaultAssociationId, defaultUnitId }: CreateTaskDialogProps) {
   const { toast } = useToast();
   const [title, setTitle] = useState(defaultTitle);
   const [priority, setPriority] = useState("Normal");
@@ -181,10 +184,32 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
   const [assignedUserId, setAssignedUserId] = useState("");
   const [dueDate, setDueDate] = useState("");
   const [description, setDescription] = useState("");
+  const [contactId, setContactId] = useState<string>(defaultContactId ? String(defaultContactId) : "");
+  const [associationId, setAssociationId] = useState<string>(defaultAssociationId ? String(defaultAssociationId) : "");
+  const [unitId, setUnitId] = useState<string>(defaultUnitId ? String(defaultUnitId) : "");
 
   const { data: taskTypes = [] } = useQuery<TypeLabel[]>({
     queryKey: ["/api/type-labels", { category: "task_type" }],
     queryFn: () => fetch("/api/type-labels?category=task_type").then(r => r.json()),
+    enabled: open,
+  });
+
+  const { data: associations = [] } = useQuery<Association[]>({
+    queryKey: ["/api/associations"],
+    enabled: open,
+  });
+
+  const { data: units = [] } = useQuery<Unit[]>({
+    queryKey: ["/api/units", { associationId: associationId ? Number(associationId) : undefined }],
+    queryFn: () => {
+      const url = associationId ? `/api/units?associationId=${associationId}` : "/api/units";
+      return fetch(url).then(r => r.json());
+    },
+    enabled: open,
+  });
+
+  const { data: contacts = [] } = useQuery<Contact[]>({
+    queryKey: ["/api/contacts"],
     enabled: open,
   });
 
@@ -197,6 +222,9 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
       toast({ title: "Task created" });
       onClose();
       setTitle(defaultTitle); setPriority("Normal"); setTaskType("General"); setAssignedUserId(""); setDueDate(""); setDescription("");
+      setContactId(defaultContactId ? String(defaultContactId) : "");
+      setAssociationId(defaultAssociationId ? String(defaultAssociationId) : "");
+      setUnitId(defaultUnitId ? String(defaultUnitId) : "");
     },
     onError: (e: Error) => toast({ title: "Failed to create task", description: e.message, variant: "destructive" }),
   });
@@ -211,6 +239,9 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
       assignedUserId: (assignedUserId && assignedUserId !== "__unassigned__") ? Number(assignedUserId) : null,
       dueDate: dueDate || null,
       threadId,
+      contactId: contactId ? Number(contactId) : null,
+      associationId: associationId ? Number(associationId) : null,
+      unitId: unitId ? Number(unitId) : null,
     });
   }
 
@@ -241,6 +272,47 @@ function CreateTaskDialog({ open, onClose, threadId, defaultTitle, users }: Crea
               data-testid="input-thread-task-description"
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Association</label>
+              <Select value={associationId} onValueChange={setAssociationId}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-association">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {associations.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Unit</label>
+              <Select value={unitId} onValueChange={setUnitId}>
+                <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-unit">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">None</SelectItem>
+                  {units.map(u => <SelectItem key={u.id} value={String(u.id)}>Unit {u.unitNumber}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Contact</label>
+            <Select value={contactId} onValueChange={setContactId}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-thread-task-contact">
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {contacts.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.displayName}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Priority</label>
@@ -463,6 +535,8 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
     onError: (e: Error) => toast({ title: "Failed to unlink contact", description: e.message, variant: "destructive" }),
   });
 
+  const primaryContact = threadContacts?.find(tc => tc.relationshipType === "primary")?.contact || threadContacts?.[0]?.contact;
+
   const { data: threadIssues, isLoading: loadingIssues } = useQuery<IssueWithDetails[]>({
     queryKey: ["/api/threads", threadId, "issues"],
     queryFn: async () => {
@@ -489,6 +563,9 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
         description: issueDesc || null,
         priority: issuePriority,
         issueType,
+        contactId: primaryContact?.id || null,
+        associationId: primaryContact?.associationId || null,
+        unitId: primaryContact?.unitId || null,
       });
       const issue: IssueWithDetails = await res.json();
       await apiRequest("POST", `/api/issues/${issue.id}/link-thread`, { threadId });
@@ -616,7 +693,7 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
                 variant="ghost"
                 className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
                 onClick={() => { setIssueTitle(threadSubject); setShowCreateIssue(true); }}
-                data-testid="button-create-thread-issue"
+                data-testid="button-create-issue-from-thread"
               >
                 <Plus className="h-3 w-3 mr-0.5" />
                 Create
@@ -928,7 +1005,7 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
               variant="ghost"
               className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
               onClick={() => setCreateTaskOpen(true)}
-              data-testid="button-create-thread-task"
+              data-testid="button-create-task-from-thread"
             >
               <Plus className="h-3 w-3 mr-0.5" />
               Create
@@ -1113,6 +1190,9 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
         threadId={threadId}
         defaultTitle={threadSubject}
         users={users}
+        defaultContactId={threadContacts?.[0]?.contactId}
+        defaultAssociationId={threadContacts?.[0]?.contact?.associationId}
+        defaultUnitId={threadContacts?.[0]?.contact?.unitId}
       />
 
       <LinkContactDialog

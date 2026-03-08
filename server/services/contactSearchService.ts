@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { contacts, contactEmails, contactPhones, threadContacts, issues } from "@shared/schema";
+import { contacts, contactEmails, contactPhones, threadContacts, issues, associations } from "@shared/schema";
 import { eq, ilike, or, inArray, and, ne, sql } from "drizzle-orm";
 
 import type { ContactWithDetails } from "@shared/routes";
@@ -15,22 +15,37 @@ export interface ContactFilters {
 async function enrichContacts(rows: typeof contacts.$inferSelect[]): Promise<ContactWithDetails[]> {
   if (!rows.length) return [];
   const ids = rows.map(c => c.id);
-  const [phones, emails, threadRows] = await Promise.all([
+  const assocIds = rows.map(c => c.associationId).filter(Boolean) as number[];
+
+  const [phones, emails, threadRows, assocRows] = await Promise.all([
     db.select().from(contactPhones).where(inArray(contactPhones.contactId, ids)),
     db.select().from(contactEmails).where(inArray(contactEmails.contactId, ids)),
     db.select({ contactId: threadContacts.contactId })
       .from(threadContacts)
       .where(inArray(threadContacts.contactId, ids)),
+    assocIds.length > 0
+      ? db.select().from(associations).where(inArray(associations.id, assocIds))
+      : Promise.resolve([]),
   ]);
+
   const threadCounts = new Map<number, number>();
   for (const r of threadRows) {
-    threadCounts.set(r.contactId, (threadCounts.get(r.contactId) ?? 0) + 1);
+    if (r.contactId) {
+      threadCounts.set(r.contactId, (threadCounts.get(r.contactId) ?? 0) + 1);
+    }
   }
+
+  const assocMap = new Map<number, string>();
+  for (const a of assocRows) {
+    assocMap.set(a.id, a.name);
+  }
+
   return rows.map(c => ({
     ...c,
     phones: phones.filter(p => p.contactId === c.id),
     emails: emails.filter(e => e.contactId === c.id),
     threadCount: threadCounts.get(c.id) ?? 0,
+    associationName: c.associationId ? assocMap.get(c.associationId) : null,
   }));
 }
 

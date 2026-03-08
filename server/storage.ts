@@ -113,17 +113,17 @@ export interface IStorage {
   createUnit(unit: InsertUnit): Promise<Unit>;
 
   // Issues
-  getIssues(): Promise<Issue[]>;
+  getIssues(filters?: { associationId?: number; unitId?: number }): Promise<Issue[]>;
   getIssue(id: number): Promise<Issue | undefined>;
   createIssue(issue: InsertIssue): Promise<Issue>;
   updateIssue(id: number, updates: Partial<InsertIssue>): Promise<Issue>;
   deleteIssue(id: number): Promise<void>;
 
   // Tasks
-  getTasks(issueId?: number): Promise<Task[]>;
+  getTasks(filters?: { issueId?: number; associationId?: number; unitId?: number }): Promise<Task[]>;
   getTask(id: number): Promise<Task | undefined>;
   getTaskWithMeta(id: number): Promise<TaskWithMeta | undefined>;
-  getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string }): Promise<TaskWithMeta[]>;
+  getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string; contactId?: number; associationId?: number; unitId?: number }): Promise<TaskWithMeta[]>;
   getTasksByThread(threadId: number): Promise<TaskWithMeta[]>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: number, updates: Partial<InsertTask>): Promise<Task>;
@@ -374,16 +374,30 @@ export class DatabaseStorage implements IStorage {
   async createUnit(u: InsertUnit) { const [r] = await db.insert(units).values(u).returning(); return r; }
 
   // Issues
-  async getIssues() { return db.select().from(issues); }
+  async getIssues(filters?: { associationId?: number; unitId?: number }) {
+    if (filters) {
+      const conditions = [];
+      if (filters.associationId) conditions.push(eq(issues.associationId, filters.associationId));
+      if (filters.unitId) conditions.push(eq(issues.unitId, filters.unitId));
+      return db.select().from(issues).where(and(...conditions)).orderBy(desc(issues.createdAt));
+    }
+    return db.select().from(issues).orderBy(desc(issues.createdAt));
+  }
   async getIssue(id: number) { const [r] = await db.select().from(issues).where(eq(issues.id, id)); return r; }
   async createIssue(i: InsertIssue) { const [r] = await db.insert(issues).values(i).returning(); return r; }
   async updateIssue(id: number, i: Partial<InsertIssue>) { const [r] = await db.update(issues).set(i).where(eq(issues.id, id)).returning(); return r; }
   async deleteIssue(id: number) { await db.delete(issues).where(eq(issues.id, id)); }
 
   // Tasks
-  async getTasks(issueId?: number) {
-    if (issueId) return db.select().from(tasks).where(eq(tasks.issueId, issueId));
-    return db.select().from(tasks);
+  async getTasks(filters?: { issueId?: number; associationId?: number; unitId?: number }) {
+    if (filters) {
+      const conditions = [];
+      if (filters.issueId) conditions.push(eq(tasks.issueId, filters.issueId));
+      if (filters.associationId) conditions.push(eq(tasks.associationId, filters.associationId));
+      if (filters.unitId) conditions.push(eq(tasks.unitId, filters.unitId));
+      return db.select().from(tasks).where(and(...conditions)).orderBy(desc(tasks.createdAt));
+    }
+    return db.select().from(tasks).orderBy(desc(tasks.createdAt));
   }
 
   async getTask(id: number) { const [r] = await db.select().from(tasks).where(eq(tasks.id, id)); return r; }
@@ -419,12 +433,14 @@ export class DatabaseStorage implements IStorage {
     return enriched;
   }
 
-  async getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string; contactId?: number }): Promise<TaskWithMeta[]> {
+  async getTasksFiltered(options: { assignedUserId?: number; threadId?: number; overdue?: boolean; status?: string; contactId?: number; associationId?: number; unitId?: number }): Promise<TaskWithMeta[]> {
     const conditions = [];
     if (options.assignedUserId !== undefined) conditions.push(eq(tasks.assignedUserId, options.assignedUserId));
     if (options.threadId !== undefined) conditions.push(eq(tasks.threadId, options.threadId));
     if (options.status !== undefined) conditions.push(eq(tasks.status, options.status));
     if (options.contactId !== undefined) conditions.push(eq(tasks.contactId, options.contactId));
+    if (options.associationId !== undefined) conditions.push(eq(tasks.associationId, options.associationId));
+    if (options.unitId !== undefined) conditions.push(eq(tasks.unitId, options.unitId));
     if (options.overdue) {
       conditions.push(lt(tasks.dueDate, new Date()));
       conditions.push(notInArray(tasks.status, ["Completed", "Cancelled"]));

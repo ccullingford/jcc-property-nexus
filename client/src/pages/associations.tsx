@@ -13,8 +13,10 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Plus, Search, Pencil, MapPin, Users, AlertCircle, Hash, X } from "lucide-react";
-import type { Association, Unit, Mailbox } from "@shared/schema";
+import { Building2, Plus, Search, Pencil, MapPin, Users, AlertCircle, Hash, X, ChevronDown, ChevronRight, ClipboardList, CheckCircle2 } from "lucide-react";
+import type { Association, Unit, Mailbox, Issue, Task } from "@shared/schema";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { format } from "date-fns";
 
 type AssociationWithStats = Association & {
   unitCount: number;
@@ -256,6 +258,122 @@ function UnitFormDialog({ open, onClose, associationId, initial, onSaved }: Unit
   );
 }
 
+// ─── Issues & Tasks Sections ──────────────────────────────────────────────────
+
+function IssuesSection({ associationId, unitId }: { associationId?: number, unitId?: number }) {
+  const [isOpen, setIsOpen] = useState(true);
+  const { data: issues = [], isLoading } = useQuery<Issue[]>({
+    queryKey: ["/api/issues", { associationId, unitId }],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (associationId) params.set("associationId", associationId.toString());
+      if (unitId) params.set("unitId", unitId.toString());
+      return fetch(`/api/issues?${params}`).then(r => r.json());
+    }
+  });
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-2">
+      <div className="flex items-center justify-between">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="p-0 hover:bg-transparent flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Issues ({issues.length})
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="space-y-2">
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : issues.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2 text-center">No issues found.</p>
+        ) : (
+          <div className="space-y-2">
+            {issues.map(issue => (
+              <div key={issue.id} className="p-3 border rounded-md hover:bg-muted/50 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium leading-none mb-1 truncate">{issue.title}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Badge variant="outline" className="px-1 py-0 h-4 text-[10px]">{issue.status}</Badge>
+                      <span>{format(new Date(issue.createdAt), "MMM d")}</span>
+                    </div>
+                  </div>
+                  <AlertCircle className={`h-4 w-4 shrink-0 ${issue.priority === 'High' ? 'text-destructive' : 'text-muted-foreground'}`} />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function TasksSection({ associationId, unitId }: { associationId?: number, unitId?: number }) {
+  const [isOpen, setIsOpen] = useState(true);
+  const { data: tasks = [], isLoading } = useQuery<Task[]>({
+    queryKey: ["/api/tasks", { associationId, unitId }],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (associationId) params.set("associationId", associationId.toString());
+      if (unitId) params.set("unitId", unitId.toString());
+      return fetch(`/api/tasks?${params}`).then(r => r.json());
+    }
+  });
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-2">
+      <div className="flex items-center justify-between">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="p-0 hover:bg-transparent flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            Tasks ({tasks.length})
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="space-y-2">
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : tasks.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2 text-center">No tasks found.</p>
+        ) : (
+          <div className="space-y-2">
+            {tasks.map(task => (
+              <div key={task.id} className="p-3 border rounded-md hover:bg-muted/50 transition-colors">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium leading-none mb-1 truncate">{task.title}</p>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <CheckCircle2 className={`h-3 w-3 ${task.status === 'Completed' ? 'text-green-500' : 'text-muted-foreground'}`} />
+                      <span>{task.status}</span>
+                      {task.dueDate && (
+                        <>
+                          <span>·</span>
+                          <span className={new Date(task.dueDate) < new Date() && task.status !== 'Completed' ? 'text-destructive font-medium' : ''}>
+                            Due {format(new Date(task.dueDate), "MMM d")}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <ClipboardList className="h-4 w-4 shrink-0 text-muted-foreground" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
 // ─── Association Detail Panel ──────────────────────────────────────────────────
 
 interface DetailPanelProps {
@@ -355,28 +473,46 @@ function AssociationDetailPanel({ associationId, onEdit }: DetailPanelProps) {
             ) : (
               <div className="space-y-1">
                 {units.map(unit => (
-                  <div
-                    key={unit.id}
-                    className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-muted/50 group"
-                    data-testid={`row-unit-${unit.id}`}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Hash className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                      <span className="text-sm font-medium" data-testid={`text-unit-number-${unit.id}`}>{unit.unitNumber}</span>
-                      {unit.building && <span className="text-xs text-muted-foreground">· {unit.building}</span>}
-                      {unit.streetAddress && <span className="text-xs text-muted-foreground truncate">· {unit.streetAddress}</span>}
+                  <div key={unit.id} className="group">
+                    <div
+                      className="flex items-center justify-between px-3 py-2 rounded-md hover:bg-muted/50"
+                      data-testid={`row-unit-${unit.id}`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Hash className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <span className="text-sm font-medium" data-testid={`text-unit-number-${unit.id}`}>{unit.unitNumber}</span>
+                        {unit.building && <span className="text-xs text-muted-foreground">· {unit.building}</span>}
+                        {unit.streetAddress && <span className="text-xs text-muted-foreground truncate">· {unit.streetAddress}</span>}
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {!unit.isActive && <Badge variant="secondary" className="text-xs">Inactive</Badge>}
+                        <Button size="sm" variant="ghost" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100" onClick={() => setEditingUnit(unit)} data-testid={`button-edit-unit-${unit.id}`}>
+                          <Pencil className="h-3 w-3" />
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {!unit.isActive && <Badge variant="secondary" className="text-xs">Inactive</Badge>}
-                      <Button size="sm" variant="ghost" className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100" onClick={() => setEditingUnit(unit)} data-testid={`button-edit-unit-${unit.id}`}>
-                        <Pencil className="h-3 w-3" />
-                      </Button>
+
+                    {/* Unit-specific Issues and Tasks */}
+                    <div className="pl-6 pr-3 pb-3 pt-1 space-y-4">
+                      <IssuesSection associationId={associationId} unitId={unit.id} />
+                      <TasksSection associationId={associationId} unitId={unit.id} />
                     </div>
+                    <Separator className="my-2" />
                   </div>
                 ))}
               </div>
             )}
           </div>
+
+          <Separator />
+
+          {/* Issues Section */}
+          <IssuesSection associationId={associationId} />
+
+          <Separator />
+
+          {/* Tasks Section */}
+          <TasksSection associationId={associationId} />
         </div>
       </ScrollArea>
 

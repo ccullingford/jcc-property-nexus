@@ -10,6 +10,7 @@ interface IssueFilters {
   closedOnly?: boolean;
   contactId?: number;
   associationId?: number;
+  unitId?: number;
 }
 
 export async function listIssues(filters: IssueFilters = {}): Promise<IssueWithDetails[]> {
@@ -32,6 +33,9 @@ export async function listIssues(filters: IssueFilters = {}): Promise<IssueWithD
   }
   if (filters.associationId) {
     conditions.push(eq(issues.associationId, filters.associationId));
+  }
+  if (filters.unitId) {
+    conditions.push(eq(issues.unitId, filters.unitId));
   }
 
   const rows = conditions.length > 0

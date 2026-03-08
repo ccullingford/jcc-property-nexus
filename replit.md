@@ -10,7 +10,7 @@ An internal operations platform for property management combining shared inbox, 
 - **Auth**: Microsoft Entra ID OAuth2 with PKCE (session-based)
 
 ## Versioning
-- Current version: **1.4.0** (SemVer: MAJOR.MINOR.PATCH)
+- Current version: **1.5.0** (SemVer: MAJOR.MINOR.PATCH)
 - Single source of truth: `shared/version.ts` — exports `APP_VERSION`
 - Displayed in: sidebar footer, What's New page subtitle, Admin → System tab
 - `/api/version` endpoint returns `{ version: string }`
@@ -84,7 +84,7 @@ client/src/
 - **units** — id, property_id, unit_number, owner_contact_id, tenant_contact_id
 - **issues** — id, title, description, contact_id, association_id, property_id, unit_id, assigned_user_id, created_by_user_id, issue_type (nullable FK→type_labels name), status (Open|In Progress|Waiting|Resolved|Closed), priority (Low|Normal|High|Urgent), closed_at, updated_at, created_at
 - **issue_threads** — id, issue_id, thread_id, created_at (links issues ↔ email_threads)
-- **tasks** — id, issue_id, thread_id, contact_id (nullable FK→contacts), assigned_user_id, created_by_user_id, title, description, task_type (nullable), status (Open|In Progress|Completed|Cancelled), priority (Low|Normal|High|Urgent), due_date, updated_at, created_at
+- **tasks** — id, issue_id, thread_id, contact_id (nullable FK→contacts), association_id (nullable FK→associations), unit_id (nullable FK→units), assigned_user_id, created_by_user_id, title, description, task_type (nullable), status (Open|In Progress|Completed|Cancelled), priority (Low|Normal|High|Urgent), due_date, updated_at, created_at
 - **notes** — id, issue_id, thread_id, user_id, body, created_at
 - **calls** — id, phone_number, contact_id, user_id, started_at, ended_at, direction, notes, issue_id
 - **activity_log** — id, entity_type, entity_id, action, user_id, metadata, created_at

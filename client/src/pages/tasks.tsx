@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useLocation } from "wouter";
 import type { TaskWithMeta } from "@shared/routes";
-import type { User as UserType, TypeLabel } from "@shared/schema";
+import type { User as UserType, TypeLabel, Association, Unit, Contact } from "@shared/schema";
 import { TASK_STATUSES, TASK_PRIORITIES } from "@shared/routes";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -71,10 +71,32 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
   const [taskType, setTaskType] = useState<string>("General");
   const [assignedUserId, setAssignedUserId] = useState<string>("none");
   const [dueDate, setDueDate] = useState<string>("");
+  const [contactId, setContactId] = useState<string>("");
+  const [associationId, setAssociationId] = useState<string>("");
+  const [unitId, setUnitId] = useState<string>("");
 
   const { data: taskTypes = [] } = useQuery<TypeLabel[]>({
     queryKey: ["/api/type-labels", { category: "task_type" }],
     queryFn: () => fetch("/api/type-labels?category=task_type").then(r => r.json()),
+    enabled: open,
+  });
+
+  const { data: associations = [] } = useQuery<Association[]>({
+    queryKey: ["/api/associations"],
+    enabled: open,
+  });
+
+  const { data: units = [] } = useQuery<Unit[]>({
+    queryKey: ["/api/units", { associationId: associationId ? Number(associationId) : undefined }],
+    queryFn: () => {
+      const url = associationId ? `/api/units?associationId=${associationId}` : "/api/units";
+      return fetch(url).then(r => r.json());
+    },
+    enabled: open,
+  });
+
+  const { data: contacts = [] } = useQuery<Contact[]>({
+    queryKey: ["/api/contacts"],
     enabled: open,
   });
 
@@ -86,6 +108,7 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
       toast({ title: "Task created" });
       onClose();
       setTitle(""); setDescription(""); setPriority("Normal"); setTaskType("General"); setAssignedUserId(""); setDueDate("");
+      setContactId(""); setAssociationId(""); setUnitId("");
     },
     onError: (e: Error) => toast({ title: "Failed to create task", description: e.message, variant: "destructive" }),
   });
@@ -100,6 +123,9 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
       assignedUserId: assignedUserId && assignedUserId !== "none" ? Number(assignedUserId) : null,
       dueDate: dueDate || null,
       threadId: prefillThreadId ?? null,
+      contactId: contactId ? Number(contactId) : null,
+      associationId: associationId ? Number(associationId) : null,
+      unitId: unitId ? Number(unitId) : null,
     });
   }
 
@@ -131,6 +157,47 @@ function CreateTaskDialog({ open, onClose, prefillTitle = "", prefillThreadId }:
               data-testid="input-task-description"
             />
           </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Association</label>
+              <Select value={associationId} onValueChange={setAssociationId}>
+                <SelectTrigger data-testid="select-task-association">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {associations.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Unit</label>
+              <Select value={unitId} onValueChange={setUnitId}>
+                <SelectTrigger data-testid="select-task-unit">
+                  <SelectValue placeholder="None" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {units.map(u => <SelectItem key={u.id} value={String(u.id)}>Unit {u.unitNumber}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Contact</label>
+            <Select value={contactId} onValueChange={setContactId}>
+              <SelectTrigger data-testid="select-task-contact">
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">None</SelectItem>
+                {contacts.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.displayName}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Priority</label>

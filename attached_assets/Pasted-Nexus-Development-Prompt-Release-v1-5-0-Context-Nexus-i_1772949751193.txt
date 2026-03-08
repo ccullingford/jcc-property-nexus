@@ -1,0 +1,186 @@
+Nexus Development Prompt — Release v1.5.0
+
+Context
+Nexus is a communication-centered operations platform for HOA and property management teams.
+
+Core model:
+Communication → Threads → Issues → Tasks → Resolution → Knowledge
+
+Stack
+- React frontend
+- Node.js backend
+- PostgreSQL database
+- Microsoft Graph (email)
+- Microsoft Entra (auth)
+
+================================================
+VERSIONING RULE
+================================================
+
+Current version: 1.4.0
+
+This release increments to:
+
+1.5.0
+
+Reason:
+MINOR release (new capabilities added).
+
+After implementation:
+- Update the application version constant to 1.5.0
+- Add What's New entries for all new features
+- Ensure the version displayed in the UI is 1.5.0
+
+================================================
+FEATURES INCLUDED IN v1.5.0
+================================================
+
+1. Unit Linking for Issues
+
+Allow issues to be linked to units.
+
+Issue fields must support:
+- contact_id
+- association_id
+- unit_id
+- thread_id
+
+UI changes:
+Issue creation form must include:
+Contact
+Association
+Unit
+
+Unit selector must:
+- support autocomplete
+- show unit + association
+
+Example result:
+1604‑C Arlyn Circle — Colville II HOA
+
+Unit page must show:
+Issues
+Tasks
+Threads
+Calls (future)
+SMS (future)
+
+================================================
+
+2. Unit Linking for Tasks
+
+Tasks must support:
+- issue_id
+- contact_id
+- association_id
+- unit_id
+
+UI changes:
+Task modal must allow linking to:
+Issue
+Contact
+Association
+Unit
+
+Unit pages should display all linked tasks.
+
+================================================
+
+3. Thread → Issue / Task Auto Context
+
+When creating issues or tasks from a thread:
+
+Auto populate:
+- contact
+- association
+- unit
+- thread
+
+Reduce manual linking.
+
+================================================
+
+4. Next Thread Workflow
+
+Add a "Next Thread" button in thread view.
+
+Workflow:
+Thread
+→ Reply / Create Issue / Create Task
+→ Next Thread
+
+System should open the next open thread automatically.
+
+================================================
+
+5. Keyboard Shortcuts
+
+Inbox shortcuts:
+R → Reply
+A → Reply All
+F → Forward
+I → Create Issue
+T → Create Task
+N → Next Thread
+
+Global shortcuts:
+Cmd/Ctrl + K → Global search
+Cmd/Ctrl + Enter → Send email
+
+Shortcuts must be disabled when focus is inside:
+input
+textarea
+rich editor
+
+================================================
+
+6. Thread Readability Improvements
+
+Add:
+Collapse older messages
+Highlight newest unread message
+Scroll automatically to first unread message.
+
+================================================
+
+7. Expanded Inbox Filters
+
+Filters must include:
+Open Mail (default)
+Unread
+Has Issue
+Has Task
+Association
+Unit
+Mailbox
+Owner
+
+Allow multiple filters.
+
+================================================
+
+8. Contact Matching Improvements
+
+Contact search results must show:
+Name
+Company
+Email
+Phone
+
+instead of only name.
+
+================================================
+
+EXPECTED RESULT
+
+After this release:
+Units become a first-class operational object.
+
+Staff can see:
+Unit
+↓
+Threads
+Issues
+Tasks
+
+This significantly improves property-level operations.

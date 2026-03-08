@@ -43,6 +43,7 @@ interface InboxFilters {
   view: "inbox" | "sent";
   hasTask: boolean;
   hasIssue: boolean;
+  associationId: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -430,7 +431,7 @@ function ContactTagInput({
   const [highlightIdx, setHighlightIdx] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  const { data: results = [] } = useQuery<Contact[]>({
+  const { data: results = [] } = useQuery<ContactWithDetails[]>({
     queryKey: ["/api/contacts", "ac", raw],
     queryFn: () => fetch(`/api/contacts?q=${encodeURIComponent(raw)}&limit=8`).then(r => r.json()),
     enabled: raw.length >= 2,
@@ -490,12 +491,22 @@ function ContactTagInput({
             {results.map((c, i) => (
               <button
                 key={c.id} type="button"
-                className={`w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 ${i === highlightIdx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
+                className={`w-full text-left px-3 py-2 text-xs flex flex-col gap-0.5 ${i === highlightIdx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
                 onMouseDown={e => { e.preventDefault(); if (c.primaryEmail) addEmail(c.primaryEmail); }}
                 onMouseEnter={() => setHighlightIdx(i)}
               >
-                <span className="font-medium truncate">{c.displayName}</span>
-                {c.primaryEmail && <span className="text-muted-foreground truncate">{c.primaryEmail}</span>}
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-medium truncate">{c.displayName}</span>
+                  {c.associationName && (
+                    <span className="text-[10px] bg-primary/10 text-primary px-1 rounded truncate ml-2">
+                      {c.associationName}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-muted-foreground truncate">
+                  {c.primaryEmail && <span>{c.primaryEmail}</span>}
+                  {c.primaryPhone && <span>• {c.primaryPhone}</span>}
+                </div>
               </button>
             ))}
           </div>
@@ -716,19 +727,28 @@ function ForwardCompose({
           placeholder="Add a message…"
           className="min-h-[80px] resize-none text-sm"
           data-testid="textarea-forward-body"
+          onKeyDown={e => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && to.length > 0) {
+              e.preventDefault();
+              mutation.mutate();
+            }
+          }}
         />
-        <div className="flex items-center justify-end gap-2">
-          <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button
-            size="sm"
-            onClick={() => mutation.mutate()}
-            disabled={mutation.isPending || to.length === 0}
-            data-testid="button-send-forward"
-            className="gap-2"
-          >
-            <Forward className="h-3.5 w-3.5" />
-            {mutation.isPending ? "Forwarding..." : "Forward"}
-          </Button>
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-muted-foreground">Cmd+Enter to send</p>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
+            <Button
+              size="sm"
+              onClick={() => mutation.mutate()}
+              disabled={mutation.isPending || to.length === 0}
+              data-testid="button-send-forward"
+              className="gap-2"
+            >
+              <Forward className="h-3.5 w-3.5" />
+              {mutation.isPending ? "Forwarding..." : "Forward"}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
@@ -914,11 +934,13 @@ function ThreadDetail({
   currentUser,
   threads,
   onSelectThread,
+  mailboxes,
 }: {
   thread: ThreadWithMeta;
   currentUser: User;
   threads: ThreadWithMeta[];
   onSelectThread: (id: number) => void;
+  mailboxes: Mailbox[];
 }) {
   const [replyState, setReplyState] = useState<{ message: MessageWithAttachments; replyAll: boolean } | null>(null);
   const [forwardState, setForwardState] = useState<MessageWithAttachments | null>(null);
@@ -962,6 +984,42 @@ function ThreadDetail({
   const nextOpenThread = openThreads[currentOpenIndex + 1] ?? openThreads[0] ?? null;
   const nextThread = threads[currentIndex + 1] ?? null;
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if focus is in input/textarea
+      const isInput = ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName || "");
+      const isContentEditable = (document.activeElement as HTMLElement)?.isContentEditable;
+      if (isInput || isContentEditable) return;
+
+      if (e.key === "r") {
+        e.preventDefault();
+        if (latestInbound) openReply(latestInbound, false);
+      } else if (e.key === "a") {
+        e.preventDefault();
+        if (latestInbound) openReply(latestInbound, true);
+      } else if (e.key === "f") {
+        e.preventDefault();
+        if (sortedMessages[0]) openForward(sortedMessages[0]);
+      } else if (e.key === "i") {
+        e.preventDefault();
+        const btn = document.querySelector('[data-testid="button-create-issue-from-thread"]') as HTMLButtonElement;
+        if (btn) btn.click();
+      } else if (e.key === "t") {
+        e.preventDefault();
+        const btn = document.querySelector('[data-testid="button-create-task-from-thread"]') as HTMLButtonElement;
+        if (btn) btn.click();
+      } else if (e.key === "n") {
+        e.preventDefault();
+        const nextId = nextOpenThread?.id || nextThread?.id;
+        if (nextId) onSelectThread(nextId);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [latestInbound, sortedMessages, openReply, openForward, nextOpenThread, nextThread, onSelectThread]);
+
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Thread header */}
@@ -998,6 +1056,15 @@ function ThreadDetail({
             <button onClick={() => refetch()} className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-muted" data-testid="button-refresh-messages">
               <RefreshCw className="h-3 w-3" />
             </button>
+            <div className="flex items-center gap-1 ml-1 px-1.5 py-0.5 rounded bg-muted/50 border border-border/50 text-[10px] text-muted-foreground uppercase font-medium select-none" title="Keyboard shortcuts: R (Reply), A (Reply All), F (Forward), I (Issue), T (Task), N (Next)">
+              <span className="opacity-70">Shortcuts:</span>
+              <kbd className="min-w-[14px] h-[14px] flex items-center justify-center bg-background rounded border border-border shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">R</kbd>
+              <kbd className="min-w-[14px] h-[14px] flex items-center justify-center bg-background rounded border border-border shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">A</kbd>
+              <kbd className="min-w-[14px] h-[14px] flex items-center justify-center bg-background rounded border border-border shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">F</kbd>
+              <kbd className="min-w-[14px] h-[14px] flex items-center justify-center bg-background rounded border border-border shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">I</kbd>
+              <kbd className="min-w-[14px] h-[14px] flex items-center justify-center bg-background rounded border border-border shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">T</kbd>
+              <kbd className="min-w-[14px] h-[14px] flex items-center justify-center bg-background rounded border border-border shadow-[0_1px_0_0_rgba(0,0,0,0.1)]">N</kbd>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-3 mt-1.5">
@@ -1179,6 +1246,8 @@ function FilterPanel({
   onChange: (f: Partial<InboxFilters>) => void;
   users: User[];
 }) {
+  const { data: associations = [] } = useQuery<any[]>({ queryKey: ["/api/associations"] });
+
   const activeCount = [
     filters.status !== "open_mail",
     filters.unreadOnly,
@@ -1186,38 +1255,55 @@ function FilterPanel({
     filters.assignedUserId !== "all",
     filters.hasTask,
     filters.hasIssue,
+    filters.associationId !== "all",
   ].filter(Boolean).length;
 
   return (
     <div className="px-3 py-2 border-b border-border bg-muted/20 space-y-2" data-testid="filter-panel">
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
-          <Select value={filters.status} onValueChange={v => onChange({ status: v })}>
-            <SelectTrigger className="h-7 text-xs" data-testid="filter-status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="open_mail">Open Mail</SelectItem>
-              <SelectItem value="all">All statuses</SelectItem>
-              <SelectItem value="Open">Open</SelectItem>
-              <SelectItem value="Waiting">Waiting</SelectItem>
-              <SelectItem value="Closed">Closed</SelectItem>
-              <SelectItem value="Archived">Archived</SelectItem>
-            </SelectContent>
-          </Select>
+      <div className="space-y-2">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1 block">Status</Label>
+            <Select value={filters.status} onValueChange={v => onChange({ status: v })}>
+              <SelectTrigger className="h-7 text-xs" data-testid="filter-status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open_mail">Open Mail</SelectItem>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="Open">Open</SelectItem>
+                <SelectItem value="Waiting">Waiting</SelectItem>
+                <SelectItem value="Closed">Closed</SelectItem>
+                <SelectItem value="Archived">Archived</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs text-muted-foreground mb-1 block">Assigned to</Label>
+            <Select value={filters.assignedUserId} onValueChange={v => onChange({ assignedUserId: v })}>
+              <SelectTrigger className="h-7 text-xs" data-testid="filter-assigned">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Anyone</SelectItem>
+                <SelectItem value="unassigned">Unassigned</SelectItem>
+                {users.map(u => (
+                  <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
         <div>
-          <Label className="text-xs text-muted-foreground mb-1 block">Assigned to</Label>
-          <Select value={filters.assignedUserId} onValueChange={v => onChange({ assignedUserId: v })}>
-            <SelectTrigger className="h-7 text-xs" data-testid="filter-assigned">
+          <Label className="text-xs text-muted-foreground mb-1 block">Association</Label>
+          <Select value={filters.associationId} onValueChange={v => onChange({ associationId: v })}>
+            <SelectTrigger className="h-7 text-xs" data-testid="filter-association">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="all">Anyone</SelectItem>
-              <SelectItem value="unassigned">Unassigned</SelectItem>
-              {users.map(u => (
-                <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>
+              <SelectItem value="all">All Associations</SelectItem>
+              {associations.map(a => (
+                <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -1243,7 +1329,7 @@ function FilterPanel({
         {activeCount > 0 && (
           <button
             className="text-xs text-primary hover:underline ml-auto"
-            onClick={() => onChange({ status: "open_mail", unreadOnly: false, hasAttachments: false, assignedUserId: "all", hasTask: false, hasIssue: false })}
+            onClick={() => onChange({ status: "open_mail", unreadOnly: false, hasAttachments: false, assignedUserId: "all", hasTask: false, hasIssue: false, associationId: "all" })}
             data-testid="button-clear-filters"
           >
             Clear filters ({activeCount})
@@ -1269,6 +1355,7 @@ export function InboxPage() {
     view: "inbox",
     hasTask: false,
     hasIssue: false,
+    associationId: "all",
   });
 
   const debouncedSearch = useDebounce(searchInput, 350);
@@ -1298,6 +1385,7 @@ export function InboxPage() {
     params.set("sentOnly", filters.view === "sent" ? "true" : "false");
     if (filters.hasTask) params.set("hasTask", "true");
     if (filters.hasIssue) params.set("hasIssue", "true");
+    if (filters.associationId !== "all") params.set("associationId", filters.associationId);
     return `/api/threads?${params.toString()}`;
   };
 
@@ -1322,6 +1410,7 @@ export function InboxPage() {
     filters.assignedUserId !== "all",
     filters.hasTask,
     filters.hasIssue,
+    filters.associationId !== "all",
   ].filter(Boolean).length;
 
   return (
@@ -1480,6 +1569,7 @@ export function InboxPage() {
               currentUser={currentUser}
               threads={threads ?? []}
               onSelectThread={(id) => setSelectedThreadId(id)}
+              mailboxes={mailboxes ?? []}
             />
           ) : selectedThread ? (
             <div className="flex flex-col h-full min-h-0">

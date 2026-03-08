@@ -286,6 +286,8 @@ export const tasks = pgTable("tasks", {
   issueId: integer("issue_id").references(() => issues.id),
   threadId: integer("thread_id").references(() => emailThreads.id),
   contactId: integer("contact_id").references(() => contacts.id),
+  associationId: integer("association_id").references(() => associations.id),
+  unitId: integer("unit_id").references(() => units.id),
   assignedUserId: integer("assigned_user_id").references(() => users.id),
   createdByUserId: integer("created_by_user_id").references(() => users.id),
   title: text("title").notNull(),

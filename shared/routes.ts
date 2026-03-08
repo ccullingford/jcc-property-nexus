@@ -81,6 +81,10 @@ export type ContactWithDetails = typeof contacts.$inferSelect & {
   phones: typeof contactPhones.$inferSelect[];
   emails: typeof contactEmails.$inferSelect[];
   threadCount: number;
+  associationName?: string | null;
+  companyName?: string | null;
+  primaryPhone?: string | null;
+  primaryEmail?: string | null;
 };
 
 export type ContactTimelineItem = {

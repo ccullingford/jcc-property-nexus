@@ -31,6 +31,7 @@ import { Plus, AlertCircle, CheckSquare, Users, Building2, Loader2, Mail, X, Sea
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Association, Mailbox, Contact } from "@shared/schema";
+import type { ContactWithDetails } from "@shared/routes";
 
 type CreateType = "issue" | "task" | "contact" | "association" | "email" | null;
 
@@ -187,7 +188,7 @@ function EmailTagInput({
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: contactResults = [] } = useQuery<Contact[]>({
+  const { data: contactResults = [] } = useQuery<ContactWithDetails[]>({
     queryKey: ["/api/contacts", "autocomplete", raw],
     queryFn: () => fetch(`/api/contacts?q=${encodeURIComponent(raw)}&limit=8`).then(r => r.json()),
     enabled: raw.length >= 2,
@@ -273,13 +274,25 @@ function EmailTagInput({
               <button
                 key={c.id}
                 type="button"
-                className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-2 ${i === highlightIdx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
+                className={`w-full text-left px-3 py-2 text-sm flex flex-col gap-0.5 ${i === highlightIdx ? "bg-accent text-accent-foreground" : "hover:bg-accent/50"}`}
                 onMouseDown={(e) => { e.preventDefault(); if (c.primaryEmail) addEmail(c.primaryEmail); }}
                 onMouseEnter={() => setHighlightIdx(i)}
               >
-                <Search className="h-3 w-3 text-muted-foreground shrink-0" />
-                <span className="font-medium truncate">{c.displayName}</span>
-                {c.primaryEmail && <span className="text-xs text-muted-foreground truncate">{c.primaryEmail}</span>}
+                <div className="flex items-center justify-between w-full">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="font-medium truncate">{c.displayName}</span>
+                  </div>
+                  {c.associationName && (
+                    <span className="text-[10px] bg-primary/10 text-primary px-1 rounded truncate ml-2">
+                      {c.associationName}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-muted-foreground truncate pl-5">
+                  {c.primaryEmail && <span>{c.primaryEmail}</span>}
+                  {c.primaryPhone && <span>• {c.primaryPhone}</span>}
+                </div>
               </button>
             ))}
           </div>

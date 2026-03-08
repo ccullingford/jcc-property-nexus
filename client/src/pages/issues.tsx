@@ -17,7 +17,7 @@ import {
   FileText, MessageSquare, Activity, X, Link2, ChevronRight,
   PenLine, Calendar, Building2, MapPin,
 } from "lucide-react";
-import type { IssueWithDetails, IssueTimelineItem, IssueThreadWithThread, TaskWithMeta, NoteWithUser } from "@shared/routes";
+import type { IssueWithDetails, IssueTimelineItem, IssueThreadWithThread, TaskWithMeta, NoteWithUser, ContactWithDetails } from "@shared/routes";
 import { ISSUE_STATUSES, ISSUE_PRIORITIES } from "@shared/routes";
 import type { Association, Unit, TypeLabel } from "@shared/schema";
 
@@ -60,22 +60,41 @@ interface CreateIssueDialogProps {
   onClose: () => void;
   defaultTitle?: string;
   defaultThreadId?: number;
+  defaultContactId?: number;
+  defaultAssociationId?: number;
+  defaultUnitId?: number;
 }
 
-function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: CreateIssueDialogProps) {
+function CreateIssueDialog({
+  open,
+  onClose,
+  defaultTitle,
+  defaultThreadId,
+  defaultContactId,
+  defaultAssociationId,
+  defaultUnitId
+}: CreateIssueDialogProps) {
   const { toast } = useToast();
   const [title, setTitle] = useState(defaultTitle ?? "");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("Normal");
   const [issueType, setIssueType] = useState<string>("General");
-  const [associationId, setAssociationId] = useState<string>("none");
-  const [unitId, setUnitId] = useState<string>("none");
+  const [associationId, setAssociationId] = useState<string>(defaultAssociationId?.toString() ?? "none");
+  const [unitId, setUnitId] = useState<string>(defaultUnitId?.toString() ?? "none");
+  const [contactId, setContactId] = useState<string>(defaultContactId?.toString() ?? "none");
+  const [contactSearch, setContactSearch] = useState("");
 
   const { data: associations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()), enabled: open });
   const { data: assocUnits = [] } = useQuery<Unit[]>({
     queryKey: ["/api/associations", associationId, "units"],
     queryFn: () => fetch(`/api/associations/${associationId}/units`).then(r => r.json()),
     enabled: open && associationId !== "none",
+  });
+
+  const { data: contacts = [] } = useQuery<ContactWithDetails[]>({
+    queryKey: ["/api/contacts", { q: contactSearch }],
+    queryFn: () => fetch(contactSearch ? `/api/contacts?q=${encodeURIComponent(contactSearch)}` : "/api/contacts").then(r => r.json()),
+    enabled: open,
   });
 
   const { data: issueTypes = [] } = useQuery<TypeLabel[]>({
@@ -95,6 +114,7 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
         issueType,
         associationId: associationId !== "none" ? Number(associationId) : null,
         unitId: unitId !== "none" ? Number(unitId) : null,
+        contactId: contactId !== "none" ? Number(contactId) : null,
       });
       const issue: IssueWithDetails = await res.json();
       if (defaultThreadId) {
@@ -110,8 +130,9 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
       setDescription("");
       setPriority("Normal");
       setIssueType("General");
-      setAssociationId("none");
-      setUnitId("none");
+      setAssociationId(defaultAssociationId?.toString() ?? "none");
+      setUnitId(defaultUnitId?.toString() ?? "none");
+      setContactId(defaultContactId?.toString() ?? "none");
     },
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
@@ -165,6 +186,30 @@ function CreateIssueDialog({ open, onClose, defaultTitle, defaultThreadId }: Cre
                 <SelectContent>
                   {issueTypes.filter(t => t.isActive).map(t => (
                     <SelectItem key={t.id} value={t.name}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Contact</label>
+            <div className="space-y-2">
+              <Input
+                placeholder="Search contacts..."
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+                className="h-8 text-xs"
+              />
+              <Select value={contactId} onValueChange={setContactId}>
+                <SelectTrigger data-testid="select-issue-contact">
+                  <SelectValue placeholder="Select contact" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">None</SelectItem>
+                  {contacts.map((c) => (
+                    <SelectItem key={c.id} value={c.id.toString()}>
+                      {c.displayName} {c.primaryEmail ? `(${c.primaryEmail})` : ""} {c.associationName ? `[${c.associationName}]` : ""}
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
