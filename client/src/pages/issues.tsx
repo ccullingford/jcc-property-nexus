@@ -484,6 +484,12 @@ function IssueAssociationSection({ issue, onUpdate }: { issue: IssueWithDetails;
     enabled: !!issue.unitId && !editing,
   });
 
+  const { data: unitContacts = [] } = useQuery<ContactWithDetails[]>({
+    queryKey: ["/api/units", issue.unitId, "contacts"],
+    queryFn: () => fetch(`/api/units/${issue.unitId}/contacts`).then(r => r.json()),
+    enabled: !!issue.unitId && !editing,
+  });
+
   function handleEdit() { setSelAssocId(issue.associationId?.toString() ?? "none"); setSelUnitId(issue.unitId?.toString() ?? "none"); setEditing(true); }
   function handleSave() { onUpdate(selAssocId !== "none" ? Number(selAssocId) : null, selUnitId !== "none" ? Number(selUnitId) : null); setEditing(false); }
 
@@ -527,9 +533,19 @@ function IssueAssociationSection({ issue, onUpdate }: { issue: IssueWithDetails;
             <p className="text-xs text-muted-foreground" data-testid="text-no-issue-association">No association linked.</p>
           )}
           {issue.unitId && unitDetail && (
-            <div className="flex items-center gap-1.5 pl-1">
-              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span className="text-xs" data-testid="text-issue-unit">Unit {unitDetail.unitNumber}{unitDetail.building ? ` · ${unitDetail.building}` : ""}</span>
+            <div className="space-y-1">
+              <div className="flex items-center gap-1.5 pl-1">
+                <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                <span className="text-xs" data-testid="text-issue-unit">Unit {unitDetail.unitNumber}{unitDetail.building ? ` · ${unitDetail.building}` : ""}</span>
+              </div>
+              {unitContacts.filter(c => c.contactUnits?.some(cu => cu.isPrimary && cu.role === "Owner")).length > 0 && (
+                <div className="flex items-center gap-1.5 pl-1">
+                  <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-xs text-muted-foreground" data-testid="text-unit-owner">
+                    Owner: {unitContacts.filter(c => c.contactUnits?.some(cu => cu.isPrimary && cu.role === "Owner")).map(c => c.displayName).join(", ")}
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>

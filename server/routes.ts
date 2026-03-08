@@ -251,6 +251,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           howToUse: "In the inbox, open the filter panel and choose an association from the new Association dropdown.",
           isActive: true,
         },
+        {
+          releaseVersion: "1.5.5",
+          title: "Multiple Property Ownership",
+          type: "improvement",
+          description: "Contacts can now be linked to multiple properties and units, each with their own role (Owner, Tenant, Board Member, etc.). The contact detail page now shows a Properties section where you can add, remove, and edit roles across all linked units.",
+          howToUse: "Open any contact and scroll to the Properties section. Click 'Add Property' to link a new association, unit, and role. Click the role badge to edit it inline, or click Remove to unlink a property.",
+          isActive: true,
+        },
       ];
 
       for (const entry of entries) {
@@ -259,6 +267,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           await db.insert(whatsNew).values(entry);
         }
       }
+
+      // ─── Migrate existing contact.associationId/unitId → contact_units ─────
+      const { contacts: contactsTable, contactUnits: contactUnitsTable } = await import("@shared/schema");
+      const legacyContacts = await db
+        .select({ id: contactsTable.id, associationId: contactsTable.associationId, unitId: contactsTable.unitId })
+        .from(contactsTable)
+        .where(rawSql`(association_id IS NOT NULL OR unit_id IS NOT NULL)`);
+
+      if (legacyContacts.length > 0) {
+        const existingLinks = await db
+          .select({ contactId: contactUnitsTable.contactId, unitId: contactUnitsTable.unitId })
+          .from(contactUnitsTable);
+        const existingSet = new Set(existingLinks.map(l => `${l.contactId}::${l.unitId}`));
+        let migrated = 0;
+        for (const c of legacyContacts) {
+          if (!c.unitId) continue;
+          const key = `${c.id}::${c.unitId}`;
+          if (!existingSet.has(key)) {
+            await db.insert(contactUnitsTable).values({
+              contactId: c.id,
+              unitId: c.unitId,
+              associationId: c.associationId ?? null,
+              role: "Owner",
+              isPrimary: true,
+            });
+            migrated++;
+          }
+        }
+        if (migrated > 0) console.log(`[migration] Migrated ${migrated} contact→unit links to contact_units`);
+      }
+
+      // Ensure indexes exist
+      await db.execute(rawSql`CREATE INDEX IF NOT EXISTS cu_contact_idx ON contact_units (contact_id)`);
+      await db.execute(rawSql`CREATE INDEX IF NOT EXISTS cu_unit_idx ON contact_units (unit_id)`);
+      await db.execute(rawSql`CREATE INDEX IF NOT EXISTS cu_assoc_idx ON contact_units (association_id)`);
     } catch (err) {
       console.error("Seed error:", err);
     }
@@ -968,6 +1011,51 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ─── Contact Units (many-to-many) ─────────────────────────────────────────
+  app.get("/api/contacts/:id/units", async (req, res) => {
+    try {
+      res.json(await storage.getContactUnits(Number(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.post("/api/contacts/:id/units", requireAuth, async (req, res) => {
+    try {
+      const { unitId, associationId, role, isPrimary } = req.body;
+      if (!unitId) return res.status(400).json({ message: "unitId is required" });
+      const record = await storage.addContactUnit({
+        contactId: Number(req.params.id),
+        unitId: Number(unitId),
+        associationId: associationId ? Number(associationId) : null,
+        role: role ?? "Owner",
+        isPrimary: isPrimary ?? false,
+      });
+      res.status(201).json(record);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.patch("/api/contact-units/:id", requireAuth, async (req, res) => {
+    try {
+      const { role, isPrimary } = req.body;
+      const record = await storage.updateContactUnit(Number(req.params.id), { role, isPrimary });
+      res.json(record);
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.delete("/api/contact-units/:id", requireAuth, async (req, res) => {
+    try {
+      await storage.removeContactUnit(Number(req.params.id));
+      res.status(204).end();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
   // ─── Properties ───────────────────────────────────────────────────────────
   app.get(api.properties.list.path, async (_req, res) => res.json(await storage.getProperties()));
 
@@ -1109,6 +1197,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(unit);
     } catch (err: any) {
       res.status(400).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/units/:id/contacts", async (req, res) => {
+    try {
+      res.json(await storage.getUnitContacts(Number(req.params.id)));
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
     }
   });
 

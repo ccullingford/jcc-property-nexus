@@ -1,5 +1,5 @@
 import { db } from "../db";
-import { contacts, contactEmails, contactPhones, threadContacts, issues, associations } from "@shared/schema";
+import { contacts, contactEmails, contactPhones, threadContacts, issues, associations, contactUnits, units } from "@shared/schema";
 import { eq, ilike, or, inArray, and, ne, sql } from "drizzle-orm";
 
 import type { ContactWithDetails } from "@shared/routes";
@@ -17,7 +17,7 @@ async function enrichContacts(rows: typeof contacts.$inferSelect[]): Promise<Con
   const ids = rows.map(c => c.id);
   const assocIds = rows.map(c => c.associationId).filter(Boolean) as number[];
 
-  const [phones, emails, threadRows, assocRows] = await Promise.all([
+  const [phones, emails, threadRows, assocRows, contactUnitRows] = await Promise.all([
     db.select().from(contactPhones).where(inArray(contactPhones.contactId, ids)),
     db.select().from(contactEmails).where(inArray(contactEmails.contactId, ids)),
     db.select({ contactId: threadContacts.contactId })
@@ -26,6 +26,15 @@ async function enrichContacts(rows: typeof contacts.$inferSelect[]): Promise<Con
     assocIds.length > 0
       ? db.select().from(associations).where(inArray(associations.id, assocIds))
       : Promise.resolve([]),
+    db.select({
+      contactId: contactUnits.contactId,
+      unitNumber: units.unitNumber,
+      associationName: associations.name,
+    })
+      .from(contactUnits)
+      .innerJoin(units, eq(contactUnits.unitId, units.id))
+      .innerJoin(associations, eq(contactUnits.associationId, associations.id))
+      .where(inArray(contactUnits.contactId, ids)),
   ]);
 
   const threadCounts = new Map<number, number>();
@@ -40,13 +49,34 @@ async function enrichContacts(rows: typeof contacts.$inferSelect[]): Promise<Con
     assocMap.set(a.id, a.name);
   }
 
-  return rows.map(c => ({
-    ...c,
-    phones: phones.filter(p => p.contactId === c.id),
-    emails: emails.filter(e => e.contactId === c.id),
-    threadCount: threadCounts.get(c.id) ?? 0,
-    associationName: c.associationId ? assocMap.get(c.associationId) : null,
-  }));
+  const unitSummaryMap = new Map<number, string[]>();
+  for (const cu of contactUnitRows) {
+    const list = unitSummaryMap.get(cu.contactId) ?? [];
+    const info = cu.unitNumber ? `${cu.unitNumber} (${cu.associationName})` : cu.associationName ?? "Unknown Association";
+    list.push(info);
+    unitSummaryMap.set(cu.contactId, list);
+  }
+
+  return rows.map(c => {
+    const summaries = unitSummaryMap.get(c.id) ?? [];
+    let unitSummary: string | null = null;
+    if (summaries.length > 0) {
+      if (summaries.length === 1) {
+        unitSummary = summaries[0];
+      } else {
+        unitSummary = `${summaries[0]} (+${summaries.length - 1} more)`;
+      }
+    }
+
+    return {
+      ...c,
+      phones: phones.filter(p => p.contactId === c.id),
+      emails: emails.filter(e => e.contactId === c.id),
+      threadCount: threadCounts.get(c.id) ?? 0,
+      associationName: c.associationId ? assocMap.get(c.associationId) : null,
+      unitSummary,
+    };
+  });
 }
 
 export async function searchContacts(queryOrFilters?: string | ContactFilters): Promise<ContactWithDetails[]> {

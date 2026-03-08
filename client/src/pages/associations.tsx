@@ -13,10 +13,11 @@ import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Building2, Plus, Search, Pencil, MapPin, Users, AlertCircle, Hash, X, ChevronDown, ChevronRight, ClipboardList, CheckCircle2 } from "lucide-react";
-import type { Association, Unit, Mailbox, Issue, Task } from "@shared/schema";
+import { Building2, Plus, Search, Pencil, MapPin, Users, AlertCircle, Hash, X, ChevronDown, ChevronRight, ClipboardList, CheckCircle2, User } from "lucide-react";
+import type { Association, Unit, Mailbox, Issue, Task, Contact, ContactUnit } from "@shared/schema";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { format } from "date-fns";
+import { Link } from "wouter";
 
 type AssociationWithStats = Association & {
   unitCount: number;
@@ -25,6 +26,63 @@ type AssociationWithStats = Association & {
 };
 
 type UnitWithAssociation = Unit & { associationName: string | null };
+
+type ContactWithRole = Contact & { role: string };
+
+// ─── People Section ──────────────────────────────────────────────────────────
+
+function PeopleSection({ unitId }: { unitId: number }) {
+  const [isOpen, setIsOpen] = useState(true);
+  const { data: contacts = [], isLoading } = useQuery<ContactWithRole[]>({
+    queryKey: ["/api/units", unitId, "contacts"],
+  });
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen} className="space-y-2">
+      <div className="flex items-center justify-between">
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="p-0 hover:bg-transparent flex items-center gap-2 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            {isOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+            People ({contacts.length})
+          </Button>
+        </CollapsibleTrigger>
+      </div>
+      <CollapsibleContent className="space-y-2">
+        {isLoading ? (
+          <div className="space-y-2">
+            <Skeleton className="h-12 w-full" />
+            <Skeleton className="h-12 w-full" />
+          </div>
+        ) : contacts.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2 text-center">No people linked to this unit.</p>
+        ) : (
+          <div className="space-y-2">
+            {contacts.map(contact => (
+              <Link key={contact.id} href={`/contacts?id=${contact.id}`}>
+                <div className="p-3 border rounded-md hover:bg-muted/50 transition-colors cursor-pointer" data-testid={`row-unit-contact-${contact.id}`}>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium leading-none mb-1 truncate" data-testid={`text-unit-contact-name-${contact.id}`}>
+                        {contact.displayName}
+                      </p>
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <Badge variant="outline" className="px-1 py-0 h-4 text-[10px]" data-testid={`badge-unit-contact-role-${contact.id}`}>
+                          {contact.role}
+                        </Badge>
+                        <span data-testid={`text-unit-contact-type-${contact.id}`}>{contact.contactType}</span>
+                      </div>
+                    </div>
+                    <User className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
+        )}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
 
 // ─── Association Form Dialog ───────────────────────────────────────────────────
 
@@ -492,8 +550,9 @@ function AssociationDetailPanel({ associationId, onEdit }: DetailPanelProps) {
                       </div>
                     </div>
 
-                    {/* Unit-specific Issues and Tasks */}
+                    {/* Unit-specific People, Issues and Tasks */}
                     <div className="pl-6 pr-3 pb-3 pt-1 space-y-4">
+                      <PeopleSection unitId={unit.id} />
                       <IssuesSection associationId={associationId} unitId={unit.id} />
                       <TasksSection associationId={associationId} unitId={unit.id} />
                     </div>

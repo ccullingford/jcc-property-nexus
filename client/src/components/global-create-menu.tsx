@@ -283,7 +283,11 @@ function EmailTagInput({
                     <Search className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                     <span className="font-medium truncate">{c.displayName}</span>
                   </div>
-                  {c.associationName && (
+                  {c.unitSummary ? (
+                    <span className="text-[10px] bg-primary/10 text-primary px-1 rounded truncate ml-2">
+                      {c.unitSummary}
+                    </span>
+                  ) : c.associationName && (
                     <span className="text-[10px] bg-primary/10 text-primary px-1 rounded truncate ml-2">
                       {c.associationName}
                     </span>

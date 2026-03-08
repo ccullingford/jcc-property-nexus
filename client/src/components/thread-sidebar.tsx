@@ -391,6 +391,14 @@ function AssociationContextRow({ associationId, unitId }: { associationId: numbe
     enabled: !!unitId,
   });
 
+  const { data: unitContacts = [] } = useQuery<ContactWithDetails[]>({
+    queryKey: ["/api/units", unitId, "contacts"],
+    queryFn: () => fetch(`/api/units/${unitId}/contacts`).then(r => r.json()),
+    enabled: !!unitId,
+  });
+
+  const owners = unitContacts.filter(c => c.contactUnits?.some(cu => cu.isPrimary && cu.role === "Owner"));
+
   return (
     <div className="space-y-0.5" data-testid={`assoc-context-${associationId}`}>
       <div className="flex items-center gap-1.5">
@@ -401,6 +409,14 @@ function AssociationContextRow({ associationId, unitId }: { associationId: numbe
         <div className="flex items-center gap-1.5 pl-1">
           <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
           <span className="text-xs text-muted-foreground">Unit {unit.unitNumber}{unit.building ? ` · ${unit.building}` : ""}</span>
+        </div>
+      )}
+      {owners.length > 0 && (
+        <div className="flex items-center gap-1.5 pl-1">
+          <User className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="text-xs text-muted-foreground truncate">
+            Owner: {owners.map(c => c.displayName).join(", ")}
+          </span>
         </div>
       )}
     </div>

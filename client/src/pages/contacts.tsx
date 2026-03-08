@@ -17,11 +17,11 @@ import {
   Users, Search, Plus, Phone, Mail, Link2, MessageSquare,
   CheckCircle2, Clock, X, ChevronRight, Upload, Filter,
   GitMerge, AlertTriangle, ChevronDown, ChevronUp, Briefcase,
-  ArrowRight, MapPin, Building2, Pencil,
+  ArrowRight, MapPin, Building2, Pencil, Trash2,
 } from "lucide-react";
-import type { ContactWithDetails, ContactTimelineItem, IssueWithDetails, TaskWithMeta } from "@shared/routes";
+import type { ContactWithDetails, ContactTimelineItem, IssueWithDetails, TaskWithMeta, ContactType } from "@shared/routes";
 import { CONTACT_TYPES } from "@shared/routes";
-import type { Association, Unit } from "@shared/schema";
+import type { Association, Unit, ContactUnit } from "@shared/schema";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface DuplicatePair {
@@ -385,91 +385,185 @@ function ContactCard({ contact }: { contact: DuplicatePair["contact"] }) {
   );
 }
 
-// ─── Contact Association Section ──────────────────────────────────────────────
-function ContactAssociationSection({
-  associationId, unitId, onUpdate,
-}: { associationId: number | null; unitId: number | null; onUpdate: (aid: number | null, uid: number | null) => void }) {
-  const [editing, setEditing] = useState(false);
-  const [selAssocId, setSelAssocId] = useState<string>(associationId?.toString() ?? "none");
-  const [selUnitId, setSelUnitId] = useState<string>(unitId?.toString() ?? "none");
+// ─── Properties Section ──────────────────────────────────────────────────────
+function PropertiesSection({
+  contactId,
+  contactUnits = [],
+}: {
+  contactId: number;
+  contactUnits: (ContactUnit & { associationName?: string | null; unitNumber?: string | null; building?: string | null })[];
+}) {
+  const { toast } = useToast();
+  const [adding, setAdding] = useState(false);
+  const [selAssocId, setSelAssocId] = useState<string>("none");
+  const [selUnitId, setSelUnitId] = useState<string>("none");
+  const [selRole, setSelRole] = useState<string>("Owner");
 
-  const { data: associations = [] } = useQuery<Association[]>({ queryKey: ["/api/associations"], queryFn: () => fetch("/api/associations").then(r => r.json()), enabled: editing });
-  const { data: assocDetail } = useQuery<{ name: string }>({
-    queryKey: ["/api/associations", associationId],
-    queryFn: () => fetch(`/api/associations/${associationId}`).then(r => r.json()),
-    enabled: !!associationId && !editing,
+  const { data: associations = [] } = useQuery<Association[]>({
+    queryKey: ["/api/associations"],
+    queryFn: () => fetch("/api/associations").then(r => r.json()),
+    enabled: adding
   });
+
   const { data: assocUnits = [] } = useQuery<Unit[]>({
     queryKey: ["/api/associations", selAssocId, "units"],
     queryFn: () => fetch(`/api/associations/${selAssocId}/units`).then(r => r.json()),
-    enabled: editing && selAssocId !== "none",
-  });
-  const { data: unitDetail } = useQuery<{ unitNumber: string; building: string | null }>({
-    queryKey: ["/api/units", unitId],
-    queryFn: () => fetch(`/api/units/${unitId}`).then(r => r.json()),
-    enabled: !!unitId && !editing,
+    enabled: adding && selAssocId !== "none",
   });
 
-  function handleAssocChange(val: string) { setSelAssocId(val); setSelUnitId("none"); }
+  const addMutation = useMutation({
+    mutationFn: (data: any) => apiRequest("POST", `/api/contacts/${contactId}/units`, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] });
+      toast({ title: "Property added" });
+      setAdding(false);
+      setSelAssocId("none");
+      setSelUnitId("none");
+    },
+    onError: (e: Error) => toast({ title: "Failed to add property", description: e.message, variant: "destructive" }),
+  });
 
-  function handleSave() {
-    onUpdate(selAssocId !== "none" ? Number(selAssocId) : null, selUnitId !== "none" ? Number(selUnitId) : null);
-    setEditing(false);
-  }
+  const removeMutation = useMutation({
+    mutationFn: (id: number) => apiRequest("DELETE", `/api/contact-units/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] });
+      toast({ title: "Property removed" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to remove property", description: e.message, variant: "destructive" }),
+  });
 
-  function handleEdit() {
-    setSelAssocId(associationId?.toString() ?? "none");
-    setSelUnitId(unitId?.toString() ?? "none");
-    setEditing(true);
-  }
+  const updateMutation = useMutation({
+    mutationFn: ({ id, role }: { id: number, role: string }) => apiRequest("PATCH", `/api/contact-units/${id}`, { role }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/contacts", contactId] });
+      toast({ title: "Role updated" });
+    },
+    onError: (e: Error) => toast({ title: "Failed to update role", description: e.message, variant: "destructive" }),
+  });
 
   return (
-    <section data-testid="contact-association-section">
+    <section data-testid="properties-section">
       <div className="flex items-center justify-between mb-2">
         <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
-          <Building2 className="h-3.5 w-3.5" />Association
+          <Building2 className="h-3.5 w-3.5" />Properties
         </p>
-        {!editing && <Button size="sm" variant="ghost" className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground" onClick={handleEdit} data-testid="button-edit-association"><Pencil className="h-3 w-3 mr-0.5" />Edit</Button>}
+        {!adding && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={() => setAdding(true)}
+            data-testid="button-add-property"
+          >
+            <Plus className="h-3 w-3 mr-0.5" />Add
+          </Button>
+        )}
       </div>
-      {editing ? (
-        <div className="space-y-2">
-          <Select value={selAssocId} onValueChange={handleAssocChange}>
-            <SelectTrigger className="h-8 text-xs" data-testid="select-detail-association"><SelectValue placeholder="None" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              {associations.map(a => <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={selUnitId} onValueChange={setSelUnitId} disabled={selAssocId === "none"}>
-            <SelectTrigger className="h-8 text-xs" data-testid="select-detail-unit"><SelectValue placeholder="No unit" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">No unit</SelectItem>
-              {assocUnits.map(u => <SelectItem key={u.id} value={u.id.toString()}>{u.unitNumber}{u.building ? ` (${u.building})` : ""}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <div className="flex gap-2">
-            <Button size="sm" className="h-7 text-xs" onClick={handleSave} data-testid="button-save-association">Save</Button>
-            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setEditing(false)}>Cancel</Button>
+
+      {adding && (
+        <div className="space-y-2 mb-4 p-3 rounded-md bg-muted/30 border border-border">
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase">Association</label>
+            <Select value={selAssocId} onValueChange={(val) => { setSelAssocId(val); setSelUnitId("none"); }}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-add-property-association">
+                <SelectValue placeholder="Select Association" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select Association</SelectItem>
+                {associations.map(a => <SelectItem key={a.id} value={a.id.toString()}>{a.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase">Unit</label>
+            <Select value={selUnitId} onValueChange={setSelUnitId} disabled={selAssocId === "none"}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-add-property-unit">
+                <SelectValue placeholder="Select Unit" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Select Unit</SelectItem>
+                {assocUnits.map(u => (
+                  <SelectItem key={u.id} value={u.id.toString()}>
+                    {u.unitNumber}{u.building ? ` (${u.building})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[10px] font-medium text-muted-foreground uppercase">Role</label>
+            <Select value={selRole} onValueChange={setSelRole}>
+              <SelectTrigger className="h-8 text-xs" data-testid="select-add-property-role">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {CONTACT_TYPES.map(t => <SelectItem key={t} value={t}>{t}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => addMutation.mutate({
+                unitId: Number(selUnitId),
+                associationId: Number(selAssocId),
+                role: selRole,
+                isPrimary: contactUnits.length === 0
+              })}
+              disabled={selUnitId === "none" || addMutation.isPending}
+              data-testid="button-save-property"
+            >
+              Add Property
+            </Button>
+            <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setAdding(false)}>Cancel</Button>
           </div>
         </div>
-      ) : (
-        <div className="text-sm space-y-1" data-testid="association-display">
-          {associationId && assocDetail ? (
-            <div className="flex items-center gap-1.5">
-              <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span data-testid="text-assoc-display">{assocDetail.name}</span>
-            </div>
-          ) : (
-            <p className="text-xs text-muted-foreground" data-testid="text-no-association">No association linked.</p>
-          )}
-          {unitId && unitDetail && (
-            <div className="flex items-center gap-1.5 pl-1">
-              <MapPin className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-              <span className="text-xs" data-testid="text-unit-display">Unit {unitDetail.unitNumber}{unitDetail.building ? ` · ${unitDetail.building}` : ""}</span>
-            </div>
-          )}
-        </div>
       )}
+
+      <div className="space-y-2">
+        {contactUnits.length === 0 ? (
+          <p className="text-xs text-muted-foreground" data-testid="text-no-properties">No properties linked.</p>
+        ) : (
+          contactUnits.map((cu) => (
+            <div key={cu.id} className="flex items-start justify-between p-2 rounded-md border border-border/50 bg-muted/10 group" data-testid={`property-row-${cu.id}`}>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium truncate" data-testid={`text-property-assoc-${cu.id}`}>{cu.associationName || "Unknown Association"}</p>
+                <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
+                  <MapPin className="h-3 w-3" />
+                  <span data-testid={`text-property-unit-${cu.id}`}>Unit {cu.unitNumber}{cu.building ? ` · ${cu.building}` : ""}</span>
+                </div>
+                <div className="mt-1.5">
+                  <Select
+                    value={cu.role}
+                    onValueChange={(newRole) => updateMutation.mutate({ id: cu.id, role: newRole })}
+                  >
+                    <SelectTrigger className="h-6 w-fit text-[10px] px-2 bg-transparent border-none hover:bg-muted" data-testid={`select-property-role-${cu.id}`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {CONTACT_TYPES.map(t => <SelectItem key={t} value={t} className="text-[10px]">{t}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={() => removeMutation.mutate(cu.id)}
+                disabled={removeMutation.isPending}
+                data-testid={`button-remove-property-${cu.id}`}
+              >
+                <Trash2 className="h-3.5 w-3.5 text-destructive" />
+              </Button>
+            </div>
+          ))
+        )}
+      </div>
     </section>
   );
 }
@@ -722,11 +816,12 @@ function ContactDetail({ contactId }: { contactId: number }) {
             </>
           )}
 
-          {/* Association & Unit */}
-          <ContactAssociationSection
-            associationId={contact.associationId ?? null}
-            unitId={contact.unitId ?? null}
-            onUpdate={(aid, uid) => updateMutation.mutate({ associationId: aid, unitId: uid })}
+          <Separator />
+
+          {/* Properties */}
+          <PropertiesSection
+            contactId={contactId}
+            contactUnits={contact.contactUnits ?? []}
           />
 
           {/* Linked Issues */}

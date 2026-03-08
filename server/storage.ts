@@ -19,6 +19,7 @@ import {
   type ActivityLog, type InsertActivityLog,
   typeLabels, type TypeLabel, type InsertTypeLabel,
   type MailboxSignature, type InsertMailboxSignature,
+  contactUnits, type ContactUnit, type InsertContactUnit,
 } from "@shared/schema";
 import { eq, desc, and, lt, notInArray, inArray, sql, or, isNull, ilike, gte, lte, exists } from "drizzle-orm";
 import type { TaskWithMeta } from "@shared/routes";
@@ -102,6 +103,13 @@ export interface IStorage {
   deleteContact(id: number): Promise<void>;
   getContactPhones(contactId: number): Promise<ContactPhone[]>;
   addContactPhone(phone: InsertContactPhone): Promise<ContactPhone>;
+
+  // Contact Units (many-to-many)
+  getContactUnits(contactId: number): Promise<(ContactUnit & { unitNumber: string; building: string | null; associationName: string | null })[]>;
+  addContactUnit(data: InsertContactUnit): Promise<ContactUnit>;
+  updateContactUnit(id: number, patch: Partial<InsertContactUnit>): Promise<ContactUnit>;
+  removeContactUnit(id: number): Promise<void>;
+  getUnitContacts(unitId: number): Promise<(ContactUnit & { displayName: string; contactType: string; primaryEmail: string | null; primaryPhone: string | null })[]>;
 
   // Properties
   getProperties(): Promise<Property[]>;
@@ -363,6 +371,61 @@ export class DatabaseStorage implements IStorage {
   async deleteContact(id: number) { await db.delete(contacts).where(eq(contacts.id, id)); }
   async getContactPhones(contactId: number) { return db.select().from(contactPhones).where(eq(contactPhones.contactId, contactId)); }
   async addContactPhone(p: InsertContactPhone) { const [r] = await db.insert(contactPhones).values(p).returning(); return r; }
+
+  // Contact Units
+  async getContactUnits(contactId: number) {
+    const rows = await db
+      .select({
+        id: contactUnits.id,
+        contactId: contactUnits.contactId,
+        unitId: contactUnits.unitId,
+        associationId: contactUnits.associationId,
+        role: contactUnits.role,
+        isPrimary: contactUnits.isPrimary,
+        createdAt: contactUnits.createdAt,
+        updatedAt: contactUnits.updatedAt,
+        unitNumber: units.unitNumber,
+        building: units.building,
+        associationName: associations.name,
+      })
+      .from(contactUnits)
+      .innerJoin(units, eq(units.id, contactUnits.unitId))
+      .leftJoin(associations, eq(associations.id, contactUnits.associationId))
+      .where(eq(contactUnits.contactId, contactId));
+    return rows;
+  }
+  async addContactUnit(data: InsertContactUnit) {
+    const [r] = await db.insert(contactUnits).values(data).returning();
+    return r;
+  }
+  async updateContactUnit(id: number, patch: Partial<InsertContactUnit>) {
+    const [r] = await db.update(contactUnits).set({ ...patch, updatedAt: new Date() }).where(eq(contactUnits.id, id)).returning();
+    return r;
+  }
+  async removeContactUnit(id: number) {
+    await db.delete(contactUnits).where(eq(contactUnits.id, id));
+  }
+  async getUnitContacts(unitId: number) {
+    const rows = await db
+      .select({
+        id: contactUnits.id,
+        contactId: contactUnits.contactId,
+        unitId: contactUnits.unitId,
+        associationId: contactUnits.associationId,
+        role: contactUnits.role,
+        isPrimary: contactUnits.isPrimary,
+        createdAt: contactUnits.createdAt,
+        updatedAt: contactUnits.updatedAt,
+        displayName: contacts.displayName,
+        contactType: contacts.contactType,
+        primaryEmail: contacts.primaryEmail,
+        primaryPhone: contacts.primaryPhone,
+      })
+      .from(contactUnits)
+      .innerJoin(contacts, eq(contacts.id, contactUnits.contactId))
+      .where(eq(contactUnits.unitId, unitId));
+    return rows;
+  }
 
   // Properties
   async getProperties() { return db.select().from(properties); }

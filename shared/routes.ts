@@ -7,7 +7,7 @@ import {
   users, mailboxes, emailThreads, messages, attachments,
   contacts, contactPhones, contactEmails, threadContacts,
   properties, units, issues, tasks, calls, issueThreads,
-  typeLabels, insertTypeLabelSchema,
+  typeLabels, insertTypeLabelSchema, contactUnits,
 } from './schema';
 
 export type NoteWithUser = {
@@ -80,11 +80,13 @@ export type IssueThreadWithThread = typeof issueThreads.$inferSelect & {
 export type ContactWithDetails = typeof contacts.$inferSelect & {
   phones: typeof contactPhones.$inferSelect[];
   emails: typeof contactEmails.$inferSelect[];
+  contactUnits?: (typeof contactUnits.$inferSelect & { associationName?: string | null; unitNumber?: string | null; building?: string | null })[];
   threadCount: number;
   associationName?: string | null;
   companyName?: string | null;
   primaryPhone?: string | null;
   primaryEmail?: string | null;
+  unitSummary?: string | null;
 };
 
 export type ContactTimelineItem = {

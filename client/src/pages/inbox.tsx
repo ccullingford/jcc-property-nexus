@@ -193,7 +193,7 @@ function QuickLinkContactDialog({
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{c.displayName}</p>
                     <p className="text-xs text-muted-foreground truncate">
-                      {c.contactType} · {c.primaryEmail ?? c.emails[0]?.email ?? c.primaryPhone ?? ""}
+                      {c.contactType} {c.unitSummary ? `· ${c.unitSummary}` : ""} · {c.primaryEmail ?? c.emails[0]?.email ?? c.primaryPhone ?? ""}
                     </p>
                   </div>
                 </button>
@@ -497,7 +497,11 @@ function ContactTagInput({
               >
                 <div className="flex items-center justify-between w-full">
                   <span className="font-medium truncate">{c.displayName}</span>
-                  {c.associationName && (
+                  {c.unitSummary ? (
+                    <span className="text-[10px] bg-primary/10 text-primary px-1 rounded truncate ml-2">
+                      {c.unitSummary}
+                    </span>
+                  ) : c.associationName && (
                     <span className="text-[10px] bg-primary/10 text-primary px-1 rounded truncate ml-2">
                       {c.associationName}
                     </span>

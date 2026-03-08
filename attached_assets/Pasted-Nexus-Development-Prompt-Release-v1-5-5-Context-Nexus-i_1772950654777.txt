@@ -1,0 +1,281 @@
+Nexus Development Prompt — Release v1.5.5
+
+Context
+
+Nexus is a communication-centered operations platform for HOA and property management teams.
+
+Core model:
+Communication → Threads → Issues → Tasks → Resolution → Knowledge
+
+Stack
+React frontend
+Node backend
+PostgreSQL database
+Microsoft Graph
+Microsoft Entra
+
+------------------------------------------------
+
+VERSIONING
+
+Current version: 1.5.0
+
+This release increments to:
+
+1.5.5
+
+Reason:
+PATCH release fixing an incorrect data relationship model.
+
+After implementation:
+
+Update application version constant to 1.5.5
+Add What's New entry explaining the ownership model correction.
+
+------------------------------------------------
+
+PROBLEM
+
+The current schema assumes a contact has a 1:1 relationship with:
+
+association
+unit
+
+This is incorrect.
+
+In real property management:
+
+A contact may own MANY units.
+Those units may exist in MANY associations.
+
+Example:
+
+Rony Levkovitz
+owns 29 units in Shannon Green HOA
+owns 9 units in another association
+
+Therefore:
+
+Contact → Unit must be MANY-TO-MANY.
+
+------------------------------------------------
+
+TARGET DATA MODEL
+
+Contacts
+Units
+Associations
+
+Relationships:
+
+Associations
+    1 → many Units
+
+Contacts
+    many ↔ many Units
+
+------------------------------------------------
+
+NEW TABLE REQUIRED
+
+Create a relationship table:
+
+contact_units
+
+Columns:
+
+id
+contact_id
+unit_id
+association_id
+role
+is_primary
+created_at
+updated_at
+
+------------------------------------------------
+
+ROLE FIELD
+
+Role examples:
+
+Owner
+Tenant
+Board Member
+Vendor
+Property Manager
+
+Example:
+
+contact_id: Rony
+unit_id: 9531M
+association_id: Shannon Green
+role: Owner
+
+------------------------------------------------
+
+REMOVE OLD STRUCTURE
+
+If the current system stores:
+
+association_id
+unit_id
+
+directly on contacts,
+
+this must be removed or deprecated.
+
+The contact record should NOT store a single unit.
+
+------------------------------------------------
+
+DATA MIGRATION
+
+Create a migration that:
+
+1. Reads the existing contact association/unit fields
+2. Creates records in contact_units
+3. Preserves the role (Owner if not specified)
+
+Ensure existing relationships remain intact.
+
+------------------------------------------------
+
+CONTACT PAGE UI CHANGES
+
+Replace the single association/unit section with:
+
+Properties
+
+Example UI:
+
+PROPERTIES
+
+Shannon Green HOA
+Unit 9531M
+Role: Owner
+
+Add Property
+
+---------------------------------------------
+
+Allow contacts to have multiple properties.
+
+Example:
+
+Rony Levkovitz
+
+Properties
+
+Shannon Green HOA
+Unit 9531M
+
+Shannon Green HOA
+Unit 9532M
+
+Lakeview Condos
+Unit 401
+
+------------------------------------------------
+
+UNIT PAGE CHANGES
+
+Unit page should show:
+
+Owners
+Tenants
+Contacts linked to this unit
+
+Example:
+
+Owners
+Rony Levkovitz
+Jane Doe
+
+------------------------------------------------
+
+ISSUES / TASKS LINKING
+
+Issues and Tasks linked to units must continue working.
+
+When viewing an issue or task:
+
+Show:
+
+Association
+Unit
+Owner(s)
+
+------------------------------------------------
+
+CONTACT SEARCH IMPROVEMENT
+
+When searching for contacts:
+
+Display:
+
+Name
+Company
+Email
+Phone
+Units owned
+
+Example:
+
+Rony Levkovitz
+Owner
+Shannon Green HOA (29 units)
+
+------------------------------------------------
+
+ACTIVITY TIMELINE
+
+Activity timeline for a contact must include activity from:
+
+Threads
+Issues
+Tasks
+
+linked through any of their units.
+
+------------------------------------------------
+
+PERFORMANCE
+
+Ensure indexes exist on:
+
+contact_units.contact_id
+contact_units.unit_id
+contact_units.association_id
+
+------------------------------------------------
+
+WHAT'S NEW ENTRY
+
+Title:
+Multiple Property Ownership
+
+Type:
+Improvement
+
+Description:
+Contacts can now be linked to multiple units across multiple associations. This allows Nexus to correctly represent real-world ownership structures.
+
+How to Use:
+Add additional properties to a contact from the contact profile under Properties.
+
+Release Version:
+1.5.5
+
+------------------------------------------------
+
+EXPECTED RESULT
+
+Contacts are no longer limited to one property.
+
+A single owner can now be linked to:
+
+multiple units
+multiple associations
+
+This aligns Nexus with real-world HOA ownership structures.

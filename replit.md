@@ -10,7 +10,7 @@ An internal operations platform for property management combining shared inbox, 
 - **Auth**: Microsoft Entra ID OAuth2 with PKCE (session-based)
 
 ## Versioning
-- Current version: **1.5.0** (SemVer: MAJOR.MINOR.PATCH)
+- Current version: **1.5.5** (SemVer: MAJOR.MINOR.PATCH)
 - Single source of truth: `shared/version.ts` — exports `APP_VERSION`
 - Displayed in: sidebar footer, What's New page subtitle, Admin → System tab
 - `/api/version` endpoint returns `{ version: string }`
@@ -79,6 +79,7 @@ client/src/
 - **contact_merge_log** — id, source_contact_id, target_contact_id, merged_by_user_id, merged_at
 - **contact_phones** — id, contact_id, phone_number (normalized E.164), label, is_primary, created_at
 - **contact_emails** — id, contact_id, email (normalized lowercase), is_primary, created_at
+- **contact_units** — id, contact_id, unit_id, association_id (nullable), role (Owner|Tenant|Board|Vendor|...), is_primary, created_at, updated_at; many-to-many contacts↔units join table (v1.5.5+); legacy contacts.associationId/unitId kept as deprecated columns
 - **thread_contacts** — id, thread_id, contact_id, relationship_type (nullable), created_at
 - **properties** — id, name, address, association_name, created_at
 - **units** — id, property_id, unit_number, owner_contact_id, tenant_contact_id
@@ -187,7 +188,7 @@ The Azure AD app needs:
 - `TASK_STATUSES` — Open | In Progress | Completed | Cancelled
 - `TASK_PRIORITIES` — Low | Normal | High | Urgent
 - `CONTACT_TYPES` — Owner | Tenant | Vendor | Board | Realtor | Attorney | Other
-- `ContactWithDetails` — contact enriched with phones[], emails[], threadCount
+- `ContactWithDetails` — contact enriched with phones[], emails[], threadCount, contactUnits[] (many-to-many unit links with assoc+unit names), unitSummary (short string for search dropdowns)
 - `ContactTimelineItem` — timeline item with type (thread|note|task), timestamp, summary, detail, entityId
 - `ThreadContactWithContact` — thread_contacts row enriched with the full contact object
 - `ISSUE_STATUSES` — Open | In Progress | Waiting | Resolved | Closed

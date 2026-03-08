@@ -127,6 +127,24 @@ export type ContactEmail = typeof contactEmails.$inferSelect;
 export type InsertContactEmail = z.infer<typeof insertContactEmailSchema>;
 
 // ============================================================
+// CONTACT UNITS (many-to-many: contacts ↔ units)
+// ============================================================
+export const contactUnits = pgTable("contact_units", {
+  id: serial("id").primaryKey(),
+  contactId: integer("contact_id").notNull().references(() => contacts.id),
+  unitId: integer("unit_id").notNull().references(() => units.id),
+  associationId: integer("association_id").references(() => associations.id),
+  role: text("role").notNull().default("Owner"),
+  isPrimary: boolean("is_primary").default(false).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertContactUnitSchema = createInsertSchema(contactUnits).omit({ id: true, createdAt: true, updatedAt: true });
+export type ContactUnit = typeof contactUnits.$inferSelect;
+export type InsertContactUnit = z.infer<typeof insertContactUnitSchema>;
+
+// ============================================================
 // EMAIL THREADS
 // ============================================================
 export const emailThreads = pgTable("email_threads", {
