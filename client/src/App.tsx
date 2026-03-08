@@ -20,7 +20,7 @@ import {
 } from "@/pages/placeholders";
 import { WhatsNewPage } from "@/pages/whats-new";
 
-function ProtectedRoute({ component: Component }: { component: () => JSX.Element }) {
+function ProtectedRoute({ component: Component }: { component: () => JSX.Element }): JSX.Element {
   const { data: user, isLoading } = useUser();
   if (isLoading) return <FullPageLoader />;
   if (!user) return <Redirect to="/login" />;

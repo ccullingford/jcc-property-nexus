@@ -139,11 +139,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const issueTypes = ["Maintenance", "Violation", "Request", "Billing", "General"];
         const taskTypes = ["Follow-up", "Inspection", "Repair", "Administrative", "Communication", "General"];
 
-        for (const [idx, name] of issueTypes.entries()) {
-          await storage.createTypeLabel({ category: "issue_type", name, sortOrder: idx });
+        for (let idx = 0; idx < issueTypes.length; idx++) {
+          await storage.createTypeLabel({ category: "issue_type", name: issueTypes[idx], sortOrder: idx });
         }
-        for (const [idx, name] of taskTypes.entries()) {
-          await storage.createTypeLabel({ category: "task_type", name, sortOrder: idx });
+        for (let idx = 0; idx < taskTypes.length; idx++) {
+          await storage.createTypeLabel({ category: "task_type", name: taskTypes[idx], sortOrder: idx });
         }
       }
 
@@ -1834,14 +1834,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.status(201).json(entry);
   });
 
+  // Health check endpoint for AWS load balancers
+  app.get("/health", (_req: Request, res: Response) => {
+    res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
+  });
+
+  app.get("/api/health", (_req: Request, res: Response) => {
+    res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
+  });
+
   return httpServer;
 }
-// Health check endpoint for AWS load balancers
-app.get("/health", (_req: Request, res: Response) => {
-  res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
-});
-
-app.get("/api/health", (_req: Request, res: Response) => {
-  res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
-});
 
