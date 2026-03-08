@@ -1836,3 +1836,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   return httpServer;
 }
+// Health check endpoint for AWS load balancers
+app.get("/health", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
+});
+
+app.get("/api/health", (_req: Request, res: Response) => {
+  res.status(200).json({ status: "healthy", timestamp: new Date().toISOString() });
+});
+
