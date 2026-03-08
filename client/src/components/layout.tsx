@@ -6,6 +6,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
@@ -13,6 +14,7 @@ import {
   SidebarMenuItem,
   SidebarProvider,
 } from "@/components/ui/sidebar";
+import { APP_VERSION } from "@shared/version";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -86,6 +88,11 @@ function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <div className="px-4 py-3 border-t border-sidebar-border">
+          <p className="text-xs text-muted-foreground/50 font-mono" data-testid="sidebar-version">v{APP_VERSION}</p>
+        </div>
+      </SidebarFooter>
     </Sidebar>
   );
 }

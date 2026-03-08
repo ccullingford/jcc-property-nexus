@@ -147,15 +147,24 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
       }
 
-      // Seed What's New entries — keyed by release_version so they are idempotent
+      // Normalize existing release_version values to SemVer (e.g. "1.1" → "1.1.0")
       const { whatsNew } = await import("@shared/schema");
       const { db } = await import("./db");
-      const existingVersions = await db.select({ v: whatsNew.releaseVersion }).from(whatsNew);
-      const seededVersions = new Set(existingVersions.map(r => r.v));
+      const { sql: rawSql } = await import("drizzle-orm");
+      await db.execute(rawSql`
+        UPDATE whats_new
+        SET release_version = release_version || '.0'
+        WHERE release_version IS NOT NULL
+          AND release_version ~ '^[0-9]+\.[0-9]+$'
+      `);
+
+      // Seed What's New entries — keyed by (title, release_version) so they are idempotent
+      const existingEntries = await db.select({ v: whatsNew.releaseVersion, t: whatsNew.title }).from(whatsNew);
+      const seededKeys = new Set(existingEntries.map(r => `${r.v}::${r.t}`));
 
       const entries = [
         {
-          releaseVersion: "1.1",
+          releaseVersion: "1.1.0",
           title: "Dark Mode",
           type: "feature",
           description: "Nexus now fully supports dark mode. Your preference is saved and remembered across sessions.",
@@ -163,15 +172,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           isActive: true,
         },
         {
-          releaseVersion: "1.2",
-          title: "CSV Import Improvements",
+          releaseVersion: "1.2.0",
+          title: "CSV Import — Fully Fixed",
           type: "fix",
-          description: "The CSV parser now correctly handles quoted fields containing commas and the column mapping step shows sample values so you can confirm mappings before importing.",
-          howToUse: "Go to Admin → Import, upload your CSV, and check the sample values column to confirm mapping before importing.",
+          description: "The CSV parser now correctly handles quoted fields containing commas (e.g. address fields). Column mapping no longer shifts on rows with complex addresses.",
+          howToUse: "Go to Admin → Imports, upload your CSV, and column mapping will auto-detect the correct fields. Check the sample values column to confirm before importing.",
           isActive: true,
         },
         {
-          releaseVersion: "1.3",
+          releaseVersion: "1.2.0",
+          title: "Import Preview — Sample Values Column",
+          type: "improvement",
+          description: "The column mapping step in the import wizard now shows a sample value from your data for each row, so you can instantly spot wrong mappings before committing.",
+          howToUse: 'During import, on the "Map Columns" step, the third column shows an example value pulled directly from your file.',
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.3.0",
+          title: "Company Name Field on Contacts",
+          type: "feature",
+          description: "Contacts now support a separate company name field. When importing from CSV, Nexus automatically detects whether the display name is a company or person name and stores it correctly.",
+          howToUse: 'Open any contact, click the name to edit, and you will see a Company Name field. Toggle "Show company name as primary" to control which name appears in the list.',
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.3.0",
           title: "Email Workflow & UX Improvements",
           type: "feature",
           description: "Contact autocomplete in To/Cc/Bcc fields, per-mailbox email signatures, a from-mailbox selector when replying, quoted original message in replies, Open Mail as the default inbox filter, a visible search bar in the header, and Admin nav hidden for non-admin users.",
@@ -179,17 +204,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           isActive: true,
         },
         {
-          releaseVersion: "1.4",
+          releaseVersion: "1.4.0",
           title: "Forward Email, Signatures Applied, Read Tracking & RBAC",
           type: "feature",
           description: "Forward is now a first-class email action with editable recipients, subject, and quoted original. Signatures are automatically applied in compose and reply. Opening a thread marks all messages as read. Admin nav is hidden for staff users and enforced server-side.",
-          howToUse: "Forward: click the Forward button in any thread. Signatures: configure in avatar menu → Signature Settings — they appear automatically when composing or replying. Read tracking is automatic.",
+          howToUse: "Forward: click the Forward button in any thread. Signatures: configure in avatar menu → Signature Settings — they appear automatically when composing or replying. Read tracking is automatic when you open a thread.",
           isActive: true,
         },
       ];
 
       for (const entry of entries) {
-        if (!seededVersions.has(entry.releaseVersion)) {
+        const key = `${entry.releaseVersion}::${entry.title}`;
+        if (!seededKeys.has(key)) {
           await db.insert(whatsNew).values(entry);
         }
       }
@@ -198,6 +224,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   }
   seedDatabase();
+
+  // ─── App version ─────────────────────────────────────────────────────────
+  app.get("/api/version", (_req, res) => {
+    import("@shared/version").then(({ APP_VERSION }) => {
+      res.json({ version: APP_VERSION });
+    });
+  });
 
   // ─── Auth: OAuth status ───────────────────────────────────────────────────
   app.get(api.auth.status.path, (_req, res) => {

@@ -1,0 +1,140 @@
+Continue development of the Nexus platform in the existing Replit codebase.
+
+Project context:
+Nexus is a communication-centered operations platform for HOA and property management teams. Core concept:
+Communication → Threads → Issues → Tasks → Resolution → Knowledge
+
+Tech stack:
+- React frontend
+- Node.js backend
+- PostgreSQL database
+- Microsoft Graph for email
+- Microsoft Entra for auth
+
+Architectural constraints:
+- Keep the existing architecture and domain/service separation intact
+- Use migrations for schema changes
+- Keep the codebase portable for future AWS deployment
+- Do not break existing functionality
+- Keep UI clean and minimal
+- Enforce permissions in both frontend and backend
+
+==================================================
+RELEASE / VERSIONING STANDARD (MANDATORY)
+==================================================
+
+Nexus must use one single application version at a time.
+
+Adopt Semantic Versioning (SemVer):
+MAJOR.MINOR.PATCH
+
+Examples:
+- 1.0.0
+- 1.1.0
+- 1.1.1
+
+Rules:
+- MAJOR = breaking or major architectural/platform change
+- MINOR = new feature(s) added
+- PATCH = bug fixes, minor improvements, small UX corrections
+
+There must never be multiple parallel active versions such as:
+- 1.2
+- 1.3
+- 1.2.1
+at the same time in What's New.
+
+Only one current application version exists at a time.
+
+Every future update prompt must:
+1. determine the next correct version number
+2. increment the application version
+3. apply that version consistently to the app and What's New entries
+4. summarize why the version increment is MAJOR, MINOR, or PATCH
+
+==================================================
+WHAT TO BUILD NOW
+==================================================
+
+1. Add a single application version number
+Requirements:
+- Add a central application version constant/config
+- Use SemVer format
+- Set a single current Nexus version
+- Display it in appropriate places such as:
+  - footer
+  - admin/system page
+  - What's New page
+- Make sure the displayed version comes from one source of truth
+
+2. Standardize the What's New system
+Requirements:
+- Keep or create a release_version field using SemVer string format
+- Enforce one current application version per release
+- Multiple What's New entries may share the same release_version
+- Entries should be grouped by release_version on the What's New page
+- Sort releases newest first
+- Within a release, show entries in a clean and readable way
+
+3. Recreate existing What's New entries already in the system
+Requirements:
+- Read the existing What's New entries from the database
+- Normalize and rebuild them under the new versioning scheme
+- If there are duplicate or conflicting release numbers like 1.2 and 1.3 being used inconsistently, consolidate them into the correct single release versions
+- Preserve the existing titles, types, descriptions, and how-to-use content where possible
+- Do not lose historical entries
+- If necessary, create a one-time migration or data repair script to normalize release_version values
+
+4. Add version-management guardrails for future updates
+Requirements:
+- Wherever there is a workflow, helper, admin UI, seed script, or release utility for adding What's New entries, require a release version
+- Prefer selecting the current app version by default
+- Prevent malformed version values where feasible
+- Ensure future prompts and release notes are expected to increment the version before shipping
+
+==================================================
+IMPLEMENTATION DETAILS
+==================================================
+
+Data / migration work:
+- Add or update a central app settings/config location for version number
+- Normalize existing what's_new.release_version values to SemVer
+- Add validation if needed to ensure release_version format
+- Add any seed or repair scripts needed to rebuild existing entries safely
+
+Frontend work:
+- Show the current app version in the UI
+- Update What's New page to group entries by release version
+- Make the UI clean and minimal
+- Clearly show version headings, such as:
+  Version 1.1.0
+  - Feature A
+  - Fix B
+
+Backend work:
+- Ensure APIs return release_version cleanly
+- Ensure sorting/grouping supports release display
+- Add any normalization logic needed during migration or admin creation flows
+
+==================================================
+PROMPTING / RELEASE PROCESS REQUIREMENT
+==================================================
+
+From this point forward, every development prompt and every release-related prompt should include language like:
+
+"Before implementing changes, determine the next Nexus version using SemVer, increment the application version, and apply that version consistently across the application and all new What's New entries."
+
+Also include:
+"After coding, summarize the new version number and explain why it is a MAJOR, MINOR, or PATCH release."
+
+==================================================
+OUTPUT EXPECTATIONS
+==================================================
+
+Implement directly in the codebase and then summarize:
+- the chosen current application version
+- schema/migration changes
+- any data cleanup done to recreate or normalize existing What's New entries
+- frontend locations where version is displayed
+- backend/services/routes changed
+- the rule for future version increments

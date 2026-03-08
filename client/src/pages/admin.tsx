@@ -19,7 +19,8 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { Plus, Edit2, Trash2, Mail, CheckCircle2, XCircle, Server, User, Clock, Tag, Settings2, Users } from "lucide-react";
+import { Plus, Edit2, Trash2, Mail, CheckCircle2, XCircle, Server, User, Clock, Tag, Settings2, Users, Info } from "lucide-react";
+import { APP_VERSION } from "@shared/version";
 import { z } from "zod";
 import { api } from "@shared/routes";
 import { formatDistanceToNow } from "date-fns";
@@ -89,6 +90,10 @@ export function Admin() {
             <TabsTrigger value="solutions" className="gap-2">
               <Briefcase className="h-4 w-4" />
               Solution Library
+            </TabsTrigger>
+            <TabsTrigger value="system" className="gap-2" data-testid="tab-system">
+              <Info className="h-4 w-4" />
+              System
             </TabsTrigger>
           </TabsList>
         </div>
@@ -252,6 +257,34 @@ export function Admin() {
 
           <TabsContent value="solutions" className="space-y-4">
             <SolutionLibraryTab />
+          </TabsContent>
+
+          <TabsContent value="system" className="space-y-6">
+            <div className="bg-card rounded-xl border border-border shadow-sm p-6 max-w-md">
+              <div className="flex items-center gap-3 mb-5">
+                <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                  <Server className="h-5 w-5 text-muted-foreground" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground">Nexus Platform</h3>
+                  <p className="text-xs text-muted-foreground">Property Operations Platform</p>
+                </div>
+              </div>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between py-2.5 border-b border-border">
+                  <span className="text-sm text-muted-foreground">Application Version</span>
+                  <span className="text-sm font-mono font-medium text-foreground" data-testid="admin-version">v{APP_VERSION}</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5 border-b border-border">
+                  <span className="text-sm text-muted-foreground">Versioning Scheme</span>
+                  <span className="text-sm text-foreground">Semantic Versioning (SemVer)</span>
+                </div>
+                <div className="flex items-center justify-between py-2.5">
+                  <span className="text-sm text-muted-foreground">Release Notes</span>
+                  <a href="/whats-new" className="text-sm text-primary hover:underline" data-testid="link-release-notes">View What's New</a>
+                </div>
+              </div>
+            </div>
           </TabsContent>
         </Tabs>
     </div>

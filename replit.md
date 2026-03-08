@@ -9,10 +9,19 @@ An internal operations platform for property management combining shared inbox, 
 - **Database**: PostgreSQL (Drizzle ORM)
 - **Auth**: Microsoft Entra ID OAuth2 with PKCE (session-based)
 
+## Versioning
+- Current version: **1.4.0** (SemVer: MAJOR.MINOR.PATCH)
+- Single source of truth: `shared/version.ts` — exports `APP_VERSION`
+- Displayed in: sidebar footer, What's New page subtitle, Admin → System tab
+- `/api/version` endpoint returns `{ version: string }`
+- What's New entries must use SemVer `release_version`; DB normalizer in `seedDatabase()` upgrades short versions (e.g. `1.4`) to SemVer automatically on startup
+- **Before any future release**: increment `APP_VERSION` in `shared/version.ts` first, then add What's New entries with the new version
+
 ## Project Structure
 ```
 shared/
   schema.ts       # Drizzle table definitions + Zod types (single source of truth)
+  version.ts      # APP_VERSION constant (single source of truth for app version)
   routes.ts       # API contract with typed endpoints
 server/
   index.ts        # Express entry point
