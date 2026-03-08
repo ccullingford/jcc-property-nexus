@@ -402,8 +402,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const displayName = getDisplayName(profile);
 
       // Domain check (if configured)
-      if (config.allowedDomain && !email.endsWith(`@${config.allowedDomain}`)) {
-        return res.redirect("/login?error=domain_not_allowed");
+      if (config.allowedDomain) {
+        const domain = config.allowedDomain;
+        if (!email.endsWith(`@${domain}`)) {
+          return res.redirect("/login?error=domain_not_allowed");
+        }
       }
 
       // Look up user in the users table
@@ -416,10 +419,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           user = await storage.createUser({ email, name: displayName, role: "admin" });
         } else {
           // If ALLOWED_EMAIL_DOMAIN is set and domain matches, auto-create as staff
-          if (config.allowedDomain && email.endsWith(`@${config.allowedDomain}`)) {
-            user = await storage.createUser({ email, name: displayName, role: "staff" });
+          if (config.allowedDomain) {
+            const domain = config.allowedDomain;
+            if (email.endsWith(`@${domain}`)) {
+              user = await storage.createUser({ email, name: displayName, role: "staff" });
+            } else {
+              // User not registered — deny access
+              return res.redirect("/login?error=unauthorized");
+            }
           } else {
             // User not registered — deny access
+            return res.redirect("/login?error=unauthorized");
+          }
+        }
             return res.redirect("/login?error=access_denied");
           }
         }
