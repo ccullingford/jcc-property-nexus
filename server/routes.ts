@@ -432,9 +432,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             return res.redirect("/login?error=unauthorized");
           }
         }
-            return res.redirect("/login?error=access_denied");
-          }
-        }
       }
 
       // Store delegated tokens for personal mailbox sync
