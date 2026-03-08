@@ -1,9 +1,6 @@
-name: Deploy to AWS ECS
+name: Deploy to AWS ECS (DISABLED - Using Elastic Beanstalk)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
 
 env:
