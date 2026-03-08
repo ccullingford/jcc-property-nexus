@@ -1139,6 +1139,12 @@ function ThreadDetail({
             assignedUserId={thread.assignedUserId ?? null}
             status={thread.status}
             currentUser={currentUser}
+            onStatusChange={(newStatus) => {
+              if (newStatus === "Closed" || newStatus === "Archived") {
+                if (nextOpenThread) onSelectThread(nextOpenThread.id);
+                else if (nextThread) onSelectThread(nextThread.id);
+              }
+            }}
           />
         </div>
       </div>

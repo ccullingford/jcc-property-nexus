@@ -343,9 +343,10 @@ interface Props {
   assignedUserId: number | null;
   status: string;
   currentUser: UserType;
+  onStatusChange?: (newStatus: string) => void;
 }
 
-export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status, currentUser }: Props) {
+export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status, currentUser, onStatusChange }: Props) {
   const { toast } = useToast();
   const [noteBody, setNoteBody] = useState("");
   const [createTaskOpen, setCreateTaskOpen] = useState(false);
@@ -412,7 +413,11 @@ export function ThreadSidebar({ threadId, threadSubject, assignedUserId, status,
 
   const statusMutation = useMutation({
     mutationFn: (s: string) => apiRequest("PATCH", `/api/threads/${threadId}/status`, { status: s }),
-    onSuccess: () => { invalidateThread(); },
+    onSuccess: (_data, newStatus) => {
+      invalidateThread();
+      toast({ title: `Status changed to ${newStatus}` });
+      onStatusChange?.(newStatus);
+    },
     onError: (e: Error) => toast({ title: "Failed to update status", description: e.message, variant: "destructive" }),
   });
 
