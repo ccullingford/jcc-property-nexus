@@ -146,6 +146,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           await storage.createTypeLabel({ category: "task_type", name, sortOrder: idx });
         }
       }
+
+      // Seed What's New entries — keyed by release_version so they are idempotent
+      const { whatsNew } = await import("@shared/schema");
+      const { db } = await import("./db");
+      const existingVersions = await db.select({ v: whatsNew.releaseVersion }).from(whatsNew);
+      const seededVersions = new Set(existingVersions.map(r => r.v));
+
+      const entries = [
+        {
+          releaseVersion: "1.1",
+          title: "Dark Mode",
+          type: "feature",
+          description: "Nexus now fully supports dark mode. Your preference is saved and remembered across sessions.",
+          howToUse: 'Click your avatar in the top-right corner and select "Dark mode" or "Light mode" to toggle.',
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.2",
+          title: "CSV Import Improvements",
+          type: "fix",
+          description: "The CSV parser now correctly handles quoted fields containing commas and the column mapping step shows sample values so you can confirm mappings before importing.",
+          howToUse: "Go to Admin → Import, upload your CSV, and check the sample values column to confirm mapping before importing.",
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.3",
+          title: "Email Workflow & UX Improvements",
+          type: "feature",
+          description: "Contact autocomplete in To/Cc/Bcc fields, per-mailbox email signatures, a from-mailbox selector when replying, quoted original message in replies, Open Mail as the default inbox filter, a visible search bar in the header, and Admin nav hidden for non-admin users.",
+          howToUse: "Signatures: open your avatar menu → Signature Settings. Autocomplete: start typing in any To/Cc/Bcc field. Reply from: choose a different From mailbox in the reply bar. Inbox now opens to Open Mail by default.",
+          isActive: true,
+        },
+        {
+          releaseVersion: "1.4",
+          title: "Forward Email, Signatures Applied, Read Tracking & RBAC",
+          type: "feature",
+          description: "Forward is now a first-class email action with editable recipients, subject, and quoted original. Signatures are automatically applied in compose and reply. Opening a thread marks all messages as read. Admin nav is hidden for staff users and enforced server-side.",
+          howToUse: "Forward: click the Forward button in any thread. Signatures: configure in avatar menu → Signature Settings — they appear automatically when composing or replying. Read tracking is automatic.",
+          isActive: true,
+        },
+      ];
+
+      for (const entry of entries) {
+        if (!seededVersions.has(entry.releaseVersion)) {
+          await db.insert(whatsNew).values(entry);
+        }
+      }
     } catch (err) {
       console.error("Seed error:", err);
     }
